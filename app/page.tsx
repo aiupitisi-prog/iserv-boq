@@ -48,7 +48,7 @@ const tiles: Tile[] = [
   {
     href: "/prices",
     label: "คลังราคา",
-    desc: "ราคาวัสดุ ค่าแรง อุปกรณ์",
+    desc: "ราคาวัสดุจริงจาก สนค. (TPSO)",
     circle: "bg-orange-500",
     icon: (
       <svg viewBox="0 0 24 24" className="h-9 w-9 text-white" {...stroke}>
@@ -166,8 +166,8 @@ export default function HomePage() {
         <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6">
           <h2 className="mb-2 font-semibold text-amber-900">ข้อกำหนดที่ควรอ่านให้ชัดเจน</h2>
           <p className="text-sm text-amber-900">
-            ระบบนี้เป็นต้นแบบ (prototype) เพื่อทดลองการทำงานและพัฒนาต่อ ตัวเลขราคาอ้างอิงเป็นตัวอย่างสมมุติ
-            ไม่ใช่ราคาของกรมบัญชีกลางหรือหน่วยงานใด โปรดตรวจทานเอกสารก่อนใช้ประกอบการจัดซื้อจัดจ้างจริง
+            ระบบนี้เป็นต้นแบบ (prototype) เพื่อทดลองการทำงานและพัฒนาต่อ คลังราคาอ้างอิงราคาที่ สนค. (TPSO) เผยแพร่
+            ส่วนตัวเลขใน BOQ และตัวอย่างราคาเป็นข้อมูลสมมุติ ไม่ใช่ราคาของกรมบัญชีกลางหรือหน่วยงานใด โปรดตรวจทานก่อนใช้ประกอบการจัดซื้อจัดจ้างจริง
           </p>
         </div>
       </section>
