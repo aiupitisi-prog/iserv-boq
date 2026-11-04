@@ -2,8 +2,9 @@
 
 | | |
 |---|---|
-| เอกสาร | Product Requirements Document (PRD) ฉบับที่ 1.0 |
+| เอกสาร | Product Requirements Document (PRD) ฉบับที่ **1.1** |
 | วันที่ | 4 พฤศจิกายน 2569 |
+| ประวัติแก้ไข | v1.0 — ร่างแรก · v1.1 — เพิ่มขอบเขตเครื่องยนต์ราคากลาง (Factor F) + PriceEvidence ในเฟส 1–3 และส่วนที่ 9 เครื่องมือ AI Agents/Skills |
 | เว็บไซต์ | https://iserv-boq.vercel.app |
 | Repository | https://github.com/aiupitisi-prog/iserv-boq |
 | สถานะ | ใช้งานจริง (production) — เวอร์ชันต้นแบบที่พัฒนาต่อได้ |
@@ -137,6 +138,7 @@ type TpsoItem = { code; name; unit; headCategory; headCategoryName;
 | F1.3 API ค้นหาราคา | Route Handler `GET /api/prices/search?prov=&y=&cat=&q=&limit=` — ค้นในชุดข้อมูลที่แคชอยู่ฝั่งเซิร์ฟเวอร์ ส่งเฉพาะผลลัพธ์ (ไม่ยก 6,435 แถวไป client) และ `GET /api/prices/meta` สำหรับรายชื่อจังหวัด/หมวด |
 | F1.4 แสดงที่มาราคา | แถวที่เลือกจากคลังราคาแสดง badge "อ้างอิง สนค. [จังหวัด] [เดือน/ปี]" + เพิ่ม `source` ใน `BoqItem` (optional field) |
 | F1.5 เตือนราคาเก่า | ถ้าราคาอ้างอิงเกิน 12 เดือน แสดงคำเตือนในแถว |
+| F1.6 PriceEvidence | ทุกครั้งที่ผู้ใช้เลือกราคาจากคลังราคา บันทึก evidence `{ source, commodityCode, prov, year, month, priceAtPick, pickedAt }` — ใช้ตรวจสอบย้อนหลังและเตือนราคาเก่า (รูปแบบใน skill `tpso-price-integration`) |
 
 **เกณฑ์ตรวจรับ:** เพิ่มรายการจากคลังราคาได้ภายใน 3 คลิก; ราคา/หน่วยตรงกับหน้า `/prices` เป๊ะ;
 โปรเจกต์เก่าที่ไม่มี `source` ยังใช้ได้ปกติ; พิมพ์ A4 แสดง badge ที่มาได้ (หรือซ่อนตอนพิมพ์ — ระบุในสเปกเอกสาร)
@@ -150,6 +152,7 @@ type TpsoItem = { code; name; unit; headCategory; headCategoryName;
 - F2.1 **รายการราคาส่วนตัว** — CRUD คลังราคาในเครื่อง (เก็บ localStorage), ใช้ปนกับราคา สนค. ใน modal ของเฟส 1 ได้, import/export JSON
 - F2.2 **ปัจจัยราคาระดับโปรเจกต์** — ตั้ง % ได้แก่ กำไร+โอเวอร์เฮด, ค่าดำเนินงาน (S.W.C.), เงินเผื่อจำเป็น, VAT 7% → แสดงสรุปก่อนราคารวมท้ายตาราง (แยกชัดเจนว่า "ราคาวัสดุ-แรงงาน" กับ "ราคาเสนอ")
 - F2.3 **คัดลอกโปรเจกต์/รายการ** — ทำซ้ำ BOQ ปีก่อนมาแก้
+- F2.4 **Ruleset registry (เตรียมเครื่องยนต์ราคากลาง)** — เก็บตาราง/อัตราที่ใช้คำนวณ (ตาราง Factor F, ตารางค่าแรง, เงินเผื่อ) จาก**เอกสารทางการเท่านั้น** พร้อม `sourceDoc / effectiveFrom / checksum / notices`; ประกาศใหม่ทับตารางเดิม → `supersededBy` + warn — ห้าม hardcode ตัวเลขกฎหมาย (รายละเอียดใน skill `thai-govt-base-price-rules`)
 
 **เกณฑ์ตรวจรับ:** เพิ่มรายการค่าแรงจากคลังส่วนตัวได้; สรุปท้ายตารางแสดงทุกปัจจัยถูกลำดับการคิดตามหลักประมาณราคา; export JSON รอบรวมข้อมูลใหม่
 
@@ -163,6 +166,8 @@ type TpsoItem = { code; name; unit; headCategory; headCategoryName;
 - F3.2 เลขหน้า/หัว-ท้ายกระดาษ, ลงชื่อผู้จัดทำ/ผู้ตรวจสอบ, ตัวเลขเงินเป็นตัวหนังสือ ("บาทถ้วน")
 - F3.3 รูปแบบการพิมพ์: ร่างประมาณราคาส่วน ก./ข. (ปรับได้ต่ออนาคต), ใบเสนอราคาเอกชน
 - F3.4 ส่งออก **Excel (xlsx)/CSV** นอกจาก JSON
+- F3.5 **เครื่องยนต์คำนวณราคากลาง `lib/calc/`** — pure functions `compute(project, ruleset) → Result` พร้อม trace ทุกขั้น; Factor F lookup + interpolation; ครุภัณฑ์แยกจากฐาน Factor F; ตัวเงินเป็นสตางค์ integer ห้าม float — สูตร กฎ และเวกเตอร์ทดสอบมาตรฐานอยู่ใน skill `thai-govt-base-price-rules` (ใช้ agent `boq-calc-engineer`)
+- F3.6 **เอกสารพิมพ์ชุดสมบูรณ์ 9 ฉบับ** + ช่องลงนามผู้จัดทำ / ผู้ตรวจสอบ / ผู้อนุมัติ
 
 **เกณฑ์ตรวจรับ:** พิมพ์ BOQ 60 รายการ แบ่งหน้า A4 ถูกต้อง หัวตารางซ้ำทุกหน้า ไม่มีสีพื้นหลังติด; ไฟล์ xlsx เปิดใน Excel ไทยไม่เพี้ยน encoding
 
@@ -279,3 +284,24 @@ Response (ตัดย่อ) — เดิน `children` แบบ recursive:
 4. **ธีมดาร์คแก้ที่จุดเดียว** — สี override รวมที่ `app/globals.css` + print ขาวดำ; ห้าม hardcode สีใหม่ข้ามไฟล์โดยไม่ผ่านตัวแปร
 5. **Deploy ผ่าน git เท่านั้น** — push `main` แล้ว Vercel build เอง; ไม่แก้ไฟล์บน Vercel dashboard
 6. **ไฟล์ PowerShell ใน workflow ต้อง ASCII** — ข้อความ commit ฯลฯ เขียนภาษาอังกฤษกันปัญหา encoding
+
+---
+
+## 9. เครื่องมือ AI Agents และ Skills ประจำโปรเจกต์ (เพิ่มใน v1.1)
+
+ติดตั้งใน repo แล้ว — Agents มีให้ทั้ง **OpenCode** (`.opencode/agents/`) และ **Claude Code** (`.claude/agents/`)
+(เนื้อหาชุดเดียวกัน ต่างเฉพาะ frontmatter) · Skills อยู่ที่ `.claude/skills/<id>/SKILL.md` (ทั้งสองเครื่องมืออ่านได้)
+
+| Agent | บทบาท | เรียกใช้เมื่อ |
+|---|---|---|
+| `boq-compliance-reviewer` | ตรวจรับ อ่านอย่างเดียว | หลังแก้สิ่งที่แตะการคำนวณ แบบฟอร์ม ปร.1–ปร.4 Factor F แหล่งราคา PriceEvidence disclaimer เอกสารพิมพ์ |
+| `boq-calc-engineer` | เขียนโค้ด + ทดสอบเครื่องยนต์คำนวณ | งานเฟส 2–3 ที่แตะ `lib/calc/` หรือ ruleset registry |
+| `price-data-steward` | ดูแลข้อมูลราคา + ruleset | เมื่อ TPSO / แคช / snapshot / ประกาศ / ไฟล์ ruleset เปลี่ยน |
+
+| Skill | สาระสำคัญ |
+|---|---|
+| `iserv-boq-dev-workflow` | โครงสร้างไฟล์, ข้อตกลงเหล็ก (ธีม, ข้อมูลผู้ใช้, disclaimer, deploy), การ push ผ่าน Contents API, ข้อจำกัด Vercel Hobby |
+| `tpso-price-integration` | API สนค. ครบ, ข้อจำกัด CORS/timeout, แคช, เดือนยกเลิกราคาส่วนกลาง, snapshot, PriceEvidence |
+| `thai-govt-base-price-rules` | เช็กลิสต์หลักเกณฑ์ราคากลางราชการ, ลำดับคำนวณ ปร.1–ปร.4, สูตร Factor F, เวกเตอร์ทดสอบ, กฎ "unverified — ห้ามเดาข้อกฎหมาย" |
+
+**Workflow มาตรฐาน:** งานที่แตะการคำนวณ/ฟอร์ม/ราคา → agent ที่เกี่ยวข้องทำงาน (โหลด skill ก่อนเสมอ) → ปิดงานด้วย `boq-compliance-reviewer` ตรวจ → ตัวเลขที่เป็นกฎหมายทุกตัว ผู้ใช้ต้องยืนยันกับราชกิจจานุเบกษาต้นฉบับ → เมื่อ PRD/โครงสร้างเปลี่ยน ให้ปรับ skills ทั้งสองตำแหน่ง (`.opencode/agents/` และ `.claude/agents/`) พร้อมกัน
