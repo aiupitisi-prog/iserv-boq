@@ -1,83 +1,207 @@
-"use client";
+import { tpsoMaster, tpsoPrices } from "@/lib/tpso";
 
-import { useState } from "react";
-import { thb } from "@/lib/boq";
+export const metadata = {
+  title: "คลังราคา — อ้างอิงราคาวัสดุก่อสร้าง สนค. (TPSO) | ระบบ BOQ งานก่อสร้าง",
+};
 
-type PriceRow = { name: string; unit: string; price: number; kind: "วัสดุ" | "ค่าแรง" | "อุปกรณ์" };
+export const maxDuration = 30;
 
-const PRICE_DATA: PriceRow[] = [
-  { name: "เม็ดเหล็กไม้เหลือแบบก่ออิฐ", unit: "แผ่น", price: 350, kind: "วัสดุ" },
-  { name: "ทรายล้างหนา 1 นิ้ว", unit: "ลบ.ม.", price: 850, kind: "วัสดุ" },
-  { name: "หินเม็ด 20–30 มม.", unit: "ลบ.ม.", price: 900, kind: "วัสดุ" },
-  { name: "ปูนซีเมนต์ถุง 50 กก.", unit: "ถุง", price: 165, kind: "วัสดุ" },
-  { name: "อิฐมอญ ขนาด 24×11×5.3 ซม.", unit: "พันอิฐ", price: 2050, kind: "วัสดุ" },
-  { name: "เหล็กลวดสวย DB6", unit: "เส้น", price: 128, kind: "วัสดุ" },
-  { name: "เหล็กข้อต่อเล็ก DB12", unit: "เส้น 9 ม.", price: 218, kind: "วัสดุ" },
-  { name: "สายไฟและสวัทาหรด VCT 2×2.5 ระลอก", unit: "ม้วน", price: 820, kind: "วัสดุ" },
-  { name: "ท่อ PVC รดน้ำ 4 นิ้ว", unit: "เส้น 6 ม.", price: 640, kind: "วัสดุ" },
-  { name: "ปูนดาบระบแกนความรังdat", unit: "15 กก.", price: 195, kind: "วัสดุ" },
-  { name: "ค่าแรงช่างก่ออิท", unit: "ลบ.ม.", price: 1250, kind: "ค่าแรง" },
-  { name: "ค่าแรงช่างเอางาน", unit: "ลบ.ม.", price: 950, kind: "ค่าแรง" },
-  { name: "ค่าแรงช่างฉาบ ผนัง", unit: "ตร.ม.", price: 145, kind: "ค่าแรง" },
-  { name: "ค่าแรงช่างเดินสายไฟฟ้า", unit: "จุด", price: 385, kind: "ค่าแรง" },
-  { name: "ค่าแรงงานไม่ถนัด เฝ้าหน้างาน", unit: "วัน", price: 500, kind: "ค่าแรง" },
-  { name: "ค่าเช่าเครื่องผสมส้ม (มีปั๊ม)", unit: "วัน", price: 3500, kind: "อุปกรณ์" },
-  { name: "ค่าเช่าหัวโคร่งเสาเข็มลับหัวด้าน", unit: "วัน", price: 12500, kind: "อุปกรณ์" },
-  { name: "ค่าเช่านั่นร้านโลหะพลาสติกหนา 3 ม.", unit: "วัน", price: 240, kind: "อุปกรณ์" },
+const THAI_MONTHS = [
+  "", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+  "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.",
 ];
 
-export default function PricesPage() {
-  const [q, setQ] = useState("");
-  const [kind, setKind] = useState<"all" | "วัสดุ" | "ค่าแรง" | "อุปกรณ์">("all");
-  const rows = PRICE_DATA.filter((r) => {
-    const okQ = r.name.includes(q.trim());
-    const okK = kind === "all" || r.kind === kind;
-    return okQ && okK;
+const YEARS = [2569, 2568, 2567, 2566, 2565, 2564, 2563, 2562, 2560, 2559];
+const PER_PAGE = 200;
+
+function fmt(n: number | null | undefined): string {
+  if (typeof n !== "number" || !isFinite(n)) return "—";
+  return n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function buildQuery(base: Record<string, string>, patch: Record<string, string>): string {
+  const merged = { ...base, ...patch };
+  const parts = Object.entries(merged)
+    .filter(([, v]) => v !== "" && v !== undefined)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+  return parts.length ? "?" + parts.join("&") : "";
+}
+
+export default async function PricesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const sp = await searchParams;
+  const get = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : "");
+  const prov = get("prov") || "10";
+  const year = parseInt(get("y") || "2569", 10) || 2569;
+  const cat = get("cat");
+  const q = get("q").trim();
+  const page = Math.max(1, parseInt(get("page") || "1", 10) || 1);
+
+  let provinces: { type: string; name: string }[] = [];
+  let heads: { code: string; name: string }[] = [];
+  let rows: Awaited<ReturnType<typeof tpsoPrices>> = [];
+  let error: string | null = null;
+
+  try {
+    const master = await tpsoMaster();
+    provinces = master.provinces;
+    heads = master.heads;
+    rows = await tpsoPrices(prov, year);
+  } catch (e) {
+    error = e instanceof Error ? e.message : "เชื่อมต่อ สนค. ไม่สำเร็จ";
+  }
+
+  const filtered = rows.filter((r) => {
+    if (cat && r.headCategory !== cat) return false;
+    if (q && !(r.name.includes(q) || r.code.includes(q))) return false;
+    return true;
   });
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const safePage = Math.min(page, totalPages);
+  const paged = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
+  const baseQ = { prov, y: String(year), cat, q };
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="mb-2 text-2xl font-bold text-blue-950">คลังราคา</h1>
-      <p className="mb-6 text-sm text-slate-600">ราคาวัสดุ ค่าแรง และอุปกรณ์ภายในเครื่อง ตัวอย่างเพื่อใช้ประกอบการตั้งราคา/หน่วยใน BOQ — ปรับเป็นราคาจริงของพื้นที่คุณก่อนใช้งานจริง</p>
-
-      <div className="mb-4 flex flex-wrap gap-2">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="ค้นหารายการ เช่น อิฐ, ค่าแรงช่างสลาย"
-          className="w-72 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-        />
-        {(["all", "วัสดุ", "ค่าแรง", "อุปกรณ์"] as const).map((k) => (
-          <button key={k} onClick={() => setKind(k)}
-            className={`rounded-lg px-4 py-2 text-sm ${kind === k ? "bg-blue-700 text-white" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>
-            {k === "all" ? "ทั้งหมด" : k}
-          </button>
-        ))}
+    <div className="mx-auto max-w-7xl px-4 py-10">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <h1 className="text-2xl font-bold text-blue-950">คลังราคาวัสดุก่อสร้าง</h1>
+        <a
+          href="https://index.tpso.go.th/construction-material-prices"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-full border border-blue-200 bg-blue-100 px-3 py-1 text-xs text-blue-800 hover:underline"
+        >
+          แหล่งข้อมูล: สนค. (TPSO) · index.tpso.go.th ↗
+        </a>
       </div>
+      <p className="mb-6 text-sm text-slate-600">
+        ราคาวัสดุก่อสร้างรายจังหวัดที่เผยแพร่โดยสำนักงานนโยบายและแผนการขนส่ง (สนค.) —
+        ระบบดึงราคาล่าสุดของปีที่เลือกแต่ละรายการ ใช้ประกอบการตั้งราคาต่อหน่วยใน BOQ
+      </p>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-100 text-slate-600">
-            <tr>
-              <th className="px-4 py-3 text-left font-medium">ประเภท</th>
-              <th className="px-4 py-3 text-left font-medium">รายการ</th>
-              <th className="px-4 py-3 text-left font-medium">หน่วยนับ</th>
-              <th className="px-4 py-3 text-right font-medium">ราคาบาท/หน่วย</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.name} className="border-t border-slate-100 hover:bg-slate-50">
-                <td className="px-4 py-2"><span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{r.kind}</span></td>
-                <td className="px-4 py-2 text-slate-800">{r.name}</td>
-                <td className="px-4 py-2 text-slate-500">{r.unit}</td>
-                <td className="px-4 py-2 text-right font-medium text-green-700">{thb(r.price)}</td>
-              </tr>
+      {/* ตัวกรอง */}
+      <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
+        <label className="block text-xs text-slate-500">
+          <span className="mb-1 block">จังหวัด / เขต</span>
+          <select name="prov" defaultValue={prov}
+            className="w-48 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800">
+            {provinces.map((p) => (
+              <option key={p.type} value={p.type}>{p.name}</option>
             ))}
-            {rows.length === 0 && <tr><td colSpan={4} className="px-4 py-10 text-center text-slate-500">ไม่พบรายการที่ตรงกัน</td></tr>}
-          </tbody>
-        </table>
-      </div>
+          </select>
+        </label>
+        <label className="block text-xs text-slate-500">
+          <span className="mb-1 block">ปี (พ.ศ.)</span>
+          <select name="y" defaultValue={String(year)}
+            className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800">
+            {YEARS.map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-xs text-slate-500">
+          <span className="mb-1 block">หมวดวัสดุ</span>
+          <select name="cat" defaultValue={cat}
+            className="w-64 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800">
+            <option value="">ทุกหมวด</option>
+            {heads.map((h) => (
+              <option key={h.code} value={h.code}>{h.code} {h.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-xs text-slate-500">
+          <span className="mb-1 block">ค้นหารายการ</span>
+          <input name="q" defaultValue={q} placeholder="เช่น คอนกรีต, อิฐ, เหล็ก"
+            className="w-56 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800" />
+        </label>
+        <button type="submit"
+          className="rounded-lg bg-blue-700 px-5 py-2 text-sm font-medium text-white hover:bg-blue-800">
+          ปรับตัวกรอง
+        </button>
+      </form>
+
+      {error ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-900">
+          ดึงข้อมูลจาก สนค. ไม่สำเร็จ ({error}) — กรุณาลองใหม่อีกครั้ง
+          หรือตรวจข้อมูลที่ <a className="underline" href="https://index.tpso.go.th/construction-material-prices" target="_blank" rel="noopener noreferrer">index.tpso.go.th ↗</a>
+        </div>
+      ) : (
+        <>
+          {prov === "10" && (
+            <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+              หมายเหตุ: สนค. มีประกาศยกเลิกการเผยแพร่ราคาส่วนกลางหลายช่วงเดือน
+              โปรดตรวจสอบประกาศล่าสุดบนเว็บไซต์ สนค. ก่อนใช้ราคาอ้างอิงจริง
+            </div>
+          )}
+
+          <p className="mb-3 text-sm text-slate-500">
+            พบ {filtered.length.toLocaleString("th-TH")} รายการ · แสดงหน้า {safePage}/{totalPages} ·
+            หน้าละ {PER_PAGE} รายการ
+          </p>
+
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-100 text-left text-slate-600">
+                <tr>
+                  <th className="px-3 py-3 font-medium">หมวด</th>
+                  <th className="px-3 py-3 font-medium">รายการ</th>
+                  <th className="px-3 py-3 font-medium">หน่วย</th>
+                  <th className="px-3 py-3 text-right font-medium">ราคา (บาท/หน่วย)</th>
+                  <th className="px-3 py-3 text-right font-medium">รวม VAT</th>
+                  <th className="px-3 py-3 text-center font-medium">อ้างอิงเดือน</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paged.map((r) => (
+                  <tr key={r.code} className="border-t border-slate-100 hover:bg-slate-50" title={r.code}>
+                    <td className="px-3 py-2 text-xs text-slate-500">{r.headCategoryName}</td>
+                    <td className="px-3 py-2 text-slate-800">{r.name}</td>
+                    <td className="px-3 py-2 text-slate-600">{r.unit}</td>
+                    <td className="px-3 py-2 text-right font-medium text-green-700">{fmt(r.price)}</td>
+                    <td className="px-3 py-2 text-right text-slate-600">{fmt(r.priceVAT)}</td>
+                    <td className="px-3 py-2 text-center text-xs text-slate-500">
+                      {r.month ? `${THAI_MONTHS[r.month]} ${r.year}` : "—"}
+                    </td>
+                  </tr>
+                ))}
+                {paged.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-10 text-center text-slate-500">
+                      ไม่พบข้อมูลในเงื่อนไขที่เลือก — ลองเปลี่ยนจังหวัด ปี หรือคำค้นหา
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* แบ่งหน้า */}
+          <div className="mt-4 flex items-center justify-between text-sm">
+            {safePage > 1 ? (
+              <a className="rounded-lg border border-slate-300 bg-white px-4 py-2 hover:bg-slate-50"
+                href={"/prices" + buildQuery(baseQ, { page: String(safePage - 1) })}>
+                ← ก่อนหน้า
+              </a>
+            ) : <span />}
+            {safePage < totalPages ? (
+              <a className="rounded-lg border border-slate-300 bg-white px-4 py-2 hover:bg-slate-50"
+                href={"/prices" + buildQuery(baseQ, { page: String(safePage + 1) })}>
+                ถัดไป →
+              </a>
+            ) : <span />}
+          </div>
+
+          <p className="mt-6 text-xs leading-relaxed text-slate-500">
+            ข้อมูลราคาทั้งหมดเผยแพร่โดยสำนักงานนโยบายและแผนการขนส่ง (สนค.) กระทรวงคมนาคม
+            ผ่านระบบดัชนีเศรษฐกิจการค้า index.tpso.go.th — ผู้ใช้ราคาควรติดตามประกาศต่อเนื่อง
+            เนื่องจาก สนค. อาจแก้ไข/ยกเลิกราคาที่เผยแพร่แล้ว ระบบนี้เป็นเพียงเครื่องมืออ้างอิง
+            ไม่ใช่ราคามาตรฐานของกรมบัญชีกลางหรือหน่วยงานใด
+          </p>
+        </>
+      )}
     </div>
   );
 }
