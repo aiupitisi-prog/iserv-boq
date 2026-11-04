@@ -1,11 +1,64 @@
 @import "tailwindcss";
 
-/* --- ปุ่มพิมพ์ / สไตล์พิเศษที่ Tailwind จัดการยาก --- */
+/* ============================================================
+   Dark theme — override Tailwind light utilities ทั้งเว็บ
+   (พื้นหลังดำ-น้ำเงินเข้ม, ตัวอักษรสว่าง, การ์ดโทน slate-900)
+   ============================================================ */
+
+body {
+  background-color: #020617; /* slate-950 */
+  color: #e2e8f0; /* slate-200 */
+}
+
+/* พื้นหลัง */
+.bg-white { background-color: #0f172a; } /* slate-900 */
+.bg-slate-50 { background-color: #020617; }
+.bg-slate-100 { background-color: #1e293b; } /* slate-800 */
+
+.hover\:bg-slate-50:hover { background-color: #1e293b; }
+.hover\:bg-slate-100:hover { background-color: #334155; }
+.hover\:bg-slate-200:hover { background-color: #475569; }
+
+/* เส้นขอบ */
+.border-slate-100 { border-color: #1e293b; }
+.border-slate-200 { border-color: #1e293b; }
+.border-slate-300 { border-color: #334155; }
+.hover\:border-slate-200:hover { border-color: #475569; }
+.hover\:border-slate-300:hover { border-color: #475569; }
+
+/* ตัวอักษร */
+.text-slate-900 { color: #f1f5f9; }
+.text-slate-800 { color: #e2e8f0; }
+.text-slate-700 { color: #cbd5e1; }
+.text-slate-600 { color: #94a3b8; }
+.text-slate-500 { color: #94a3b8; }
+.text-slate-400 { color: #7c8ba1; }
+.text-blue-950 { color: #dbeafe; }
+.text-blue-900 { color: #bfdbfe; }
+.text-blue-800 { color: #93c5fd; }
+.text-blue-700 { color: #93c5fd; }
+.text-green-700 { color: #4ade80; }
+
+/* ป้าย/กล่องเน้นสี */
+.bg-blue-50 { background-color: rgba(30, 58, 138, 0.28); }
+.bg-blue-100 { background-color: rgba(30, 64, 175, 0.35); }
+.border-blue-200 { border-color: #1e40af; }
+.bg-amber-50 { background-color: rgba(120, 53, 15, 0.25); }
+.bg-amber-100 { background-color: rgba(146, 64, 14, 0.3); }
+.border-amber-300 { border-color: #b45309; }
+.text-amber-900 { color: #fcd34d; }
+.text-amber-800 { color: #fbbf24; }
+
+/* ============================================================
+   Print — พิมพ์เอกสาร BOQ เป็นขาวดำปกติเสมอ
+   ============================================================ */
 @media print {
-  .no-print {
-    display: none !important;
+  .no-print { display: none !important; }
+  body { background: #fff !important; }
+  body * {
+    color: #0f172a !important;
+    background-color: transparent !important;
+    border-color: #cbd5e1 !important;
   }
-  body {
-    background: #fff;
-  }
+  thead { background: #f1f5f9 !important; }
 }
