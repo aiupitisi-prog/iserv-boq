@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+/* --- ปุ่มพิมพ์ / สไตล์พิเศษที่ Tailwind จัดการยาก --- */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+}
