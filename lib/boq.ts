@@ -1,5 +1,17 @@
 export type BoqType = "ปร.1" | "ปร.2" | "ปร.3" | "ปร.4";
 
+// หลักฐานที่มาราคา (PriceEvidence) — เก็บเมื่อเลือกราคาจากคลังราคา สนค. (TPSO)
+export type PriceSource = {
+  kind: "tpso";
+  code: string; // รหัสสินค้าของ สนค. (commodityCode)
+  prov: string; // รหัสจังหวัด/เขต (TPSO type) เช่น "10" = ส่วนกลาง
+  provName: string; // ชื่อจังหวัด/เขต
+  year: number; // ปี พ.ศ. ของราคา
+  month: number | null; // เดือนอ้างอิงราคา (1–12)
+  priceAtPick: number; // ราคา ณ ตอนเลือก (บาท/หน่วย)
+  pickedAt: string; // วันเวลาที่เลือก (ISO)
+};
+
 export type BoqItem = {
   id: string;
   section: string; // หมวดงาน
@@ -7,6 +19,7 @@ export type BoqItem = {
   unit: string; // หน่วย
   qty: number; // ปริมาณ
   price: number; // ราคาต่อหน่วย (บาท)
+  source?: PriceSource; // ที่มาราคา (optional — โปรเจกต์เก่าที่ไม่มีฟิลด์นี้ยังใช้ได้ปกติ)
 };
 
 export type BoqProject = {
@@ -16,6 +29,8 @@ export type BoqProject = {
   boqType: BoqType;
   createdAt: string;
   items: BoqItem[];
+  province?: string; // จังหวัดอ้างอิงราคา (TPSO type) เช่น "40" — ใช้เป็นค่าเริ่มต้นใน picker
+  budgetYear?: number; // ปีงบประมาณ พ.ศ. — ใช้เป็นค่าเริ่มต้นใน picker
 };
 
 export function newId(): string {
