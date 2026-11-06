@@ -76,6 +76,9 @@ export default async function PricesPage({
         >
           แหล่งข้อมูล: สนค. (TPSO) · index.tpso.go.th ↗
         </a>
+        <a href="/my-prices" className="no-print rounded-full border border-teal-300 bg-teal-50 px-3 py-1 text-xs text-teal-800 hover:underline">
+          คลังราคาของฉัน (ค่าแรง/ราคาส่วนตัว) →
+        </a>
       </div>
       <p className="mb-6 text-sm text-slate-600">
         ราคาวัสดุก่อสร้างรายจังหวัดที่เผยแพร่โดยสำนักงานนโยบายและแผนการขนส่ง (สนค.) —
