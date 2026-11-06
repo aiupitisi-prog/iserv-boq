@@ -1,7 +1,68 @@
 export type BoqType = "ปร.1" | "ปร.2" | "ปร.3" | "ปร.4";
 
-// หลักฐานที่มาราคา (PriceEvidence) — เก็บเมื่อเลือกราคาจากคลังราคา สนค. (TPSO)
-export type PriceSource = {
+// โหมดโปรเจกต์ — แยกให้ชัดตามกฎ "แยกโหมดราชการ/เอกชน"
+// - gov (ค่าเริ่มต้น, โปรเจกต์เก่า): แบบฟอร์มราชการ ห้ามมีปัจจัย % อิสระ (กำไร/โอเวอร์เฮด/S.W.C./เงินเผื่อ)
+// - private: ใบเสนอราคาเอกชน เปิดปัจจัย % ได้ แต่ต้องติดป้าย "ประมาณการ — ไม่ใช่ราคากลางตามหลักเกณฑ์" เสมอ
+export type ProjectMode = "gov" | "private";
+
+// ปัจจัยราคาระดับโปรเจกต์ (โหมดเอกชนเท่านั้น) — ผู้ใช้ตั้งเอง ไม่มีค่ากฎหมาย
+export type ProjectFactors = {
+  contingencyPct?: number; // เงินเผื่อจำเป็น (% ของต้นทุนรวม)
+  profitPct?: number; // กำไร + โอเวอร์เฮด (% ของต้นทุน + เงินเผื่อ)
+  swcPct?: number; // ค่าดำเนินงาน S.W.C. (% ของยอดรวมก่อน VAT)
+  vatPct?: number; // VAT (% ของยอดรวม เช่น 7)
+};
+
+export type ProposalLine = {
+  label: string;
+  formula: string; // สูตรที่ใช้ แสดงให้ผู้ใช้ตรวจได้
+  amount: number;
+};
+
+export type ProposalSummary = {
+  base: number; // ราคาวัสดุ-แรงงานรวม
+  lines: ProposalLine[];
+  proposalTotal: number; // ราคาเสนอ (รวม VAT)
+};
+
+// สรุปราคาเสนอ — ลำดับการคิดตามหลักประมาณราคาเอกชน (ทุกบรรทัดแสดงสูตร)
+// ต้นทุนรวม → +เงินเผื่อจำเป็น → +กำไร+โอเวอร์เฮด → +S.W.C. → +VAT
+// หมายเหตุ: ยังใช้ float เหมือน itemTotal เดิม — ย้ายไป lib/calc (สตางค์ integer) ในเฟส 3
+export function proposalSummary(items: BoqItem[], f: ProjectFactors | undefined): ProposalSummary {
+  const base = items.reduce((sum, it) => sum + itemTotal(it), 0);
+  const lines: ProposalLine[] = [];
+  let acc = base;
+
+  const contingencyPct = f?.contingencyPct ?? 0;
+  if (contingencyPct > 0) {
+    const amt = acc * (contingencyPct / 100);
+    lines.push({ label: "เงินเผื่อจำเป็น", formula: `${contingencyPct}% × ${thb(acc)}`, amount: amt });
+    acc += amt;
+  }
+  const profitPct = f?.profitPct ?? 0;
+  if (profitPct > 0) {
+    const amt = acc * (profitPct / 100);
+    lines.push({ label: "กำไรและโอเวอร์เฮด", formula: `${profitPct}% × ${thb(acc)}`, amount: amt });
+    acc += amt;
+  }
+  const swcPct = f?.swcPct ?? 0;
+  if (swcPct > 0) {
+    const amt = acc * (swcPct / 100);
+    lines.push({ label: "ค่าดำเนินงาน (S.W.C.)", formula: `${swcPct}% × ${thb(acc)}`, amount: amt });
+    acc += amt;
+  }
+  const vatPct = f?.vatPct ?? 0;
+  if (vatPct > 0) {
+    const amt = acc * (vatPct / 100);
+    lines.push({ label: "ภาษีมูลค่าเพิ่ม (VAT)", formula: `${vatPct}% × ${thb(acc)}`, amount: amt });
+    acc += amt;
+  }
+  return { base, lines, proposalTotal: acc };
+}
+
+// หลักฐานที่มาราคา (PriceEvidence) — เก็บเมื่อเลือกราคาจากคลังราคา
+// ราคา สนค. (TPSO) — อ้างอิงเดือน/ปี/จังหวัด ตรวจสอบย้อนหลังได้
+export type TpsoSource = {
   kind: "tpso";
   code: string; // รหัสสินค้าของ สนค. (commodityCode)
   prov: string; // รหัสจังหวัด/เขต (TPSO type) เช่น "10" = ส่วนกลาง
@@ -11,6 +72,19 @@ export type PriceSource = {
   priceAtPick: number; // ราคา ณ ตอนเลือก (บาท/หน่วย)
   pickedAt: string; // วันเวลาที่เลือก (ISO)
 };
+
+// ราคาส่วนตัว (คลังราคาของฉัน) — ค่าแรง/อุปกรณ์/วัสดุท้องถิ่นที่ผู้ใช้ป้อนเอง
+export type PrivateSource = {
+  kind: "private";
+  entryId: string; // รหัสรายการในคลังส่วนตัว (ตอนเลือก)
+  category: string; // วัสดุ / ค่าแรง / อื่น ๆ
+  note?: string; // เหตุผลกำกับที่มาราคา (แนะนำให้ใส่ทุกครั้ง)
+  priceAgeRef: string; // วันที่อัปเดตราคาของรายการส่วนตัว ณ ตอนเลือก (ISO) — ใช้คิดอายุราคา
+  priceAtPick: number; // ราคา ณ ตอนเลือก (บาท/หน่วย)
+  pickedAt: string; // วันเวลาที่เลือก (ISO)
+};
+
+export type PriceSource = TpsoSource | PrivateSource;
 
 export type BoqItem = {
   id: string;
@@ -31,6 +105,9 @@ export type BoqProject = {
   items: BoqItem[];
   province?: string; // จังหวัดอ้างอิงราคา (TPSO type) เช่น "40" — ใช้เป็นค่าเริ่มต้นใน picker
   budgetYear?: number; // ปีงบประมาณ พ.ศ. — ใช้เป็นค่าเริ่มต้นใน picker
+  mode?: ProjectMode; // โหมดโปรเจกต์ — ไม่ระบุ = "gov" (โปรเจกต์เก่า)
+  factors?: ProjectFactors; // ปัจจัยราคาเสนอ (โหมดเอกชนเท่านั้น)
+  rulesetId?: string; // pin ชุดกฎราคากลางที่ใช้ (เตรียมเครื่องยนต์เฟส 3)
 };
 
 export function newId(): string {
