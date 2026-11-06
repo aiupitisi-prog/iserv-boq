@@ -25,10 +25,11 @@ type Meta = {
 };
 
 // อายุราคาเป็นเดือน (นับจากเดือนอ้างอิงราคาถึงเดือนปัจจุบัน) — ใช้เตือนราคาเก่าเกิน 12 เดือน
+// ถ้าไม่รู้เดือนอ้างอิง (month = null) นับจากปีอย่างเดียวแบบ conservative
 function priceAgeMonths(src: PriceSource): number | null {
-  if (!src.month) return null;
   const now = new Date();
   const nowM = (now.getFullYear() + 543) * 12 + (now.getMonth() + 1);
+  if (!src.month) return (now.getFullYear() + 543 - src.year) * 12;
   return nowM - (src.year * 12 + src.month);
 }
 
@@ -293,6 +294,12 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
         </table>
       </div>
 
+      {/* Disclaimer ถาวร — ห้ามลบ (แสดงตอนพิมพ์ด้วย เพราะเอกสารพิมพ์ติด badge ที่มาราคา) */}
+      <p className="mt-4 text-xs text-slate-500">
+        ราคาที่อ้างอิงจากคลังราคา สนค. (สำนักงานนโยบายและแผนการขนส่ง) เป็นราคากลางท้องถิ่นเพื่อประกอบการประมาณการ —
+        ไม่ใช่ราคามาตรฐานของกรมบัญชีกลางหรือหน่วยงานใด ควรปรับตามราคาจริงของพื้นที่ก่อนใช้ประกอบการจัดซื้อจัดจ้าง
+      </p>
+
       <div className="mt-8">
         <h2 className="mb-3 text-lg font-semibold text-blue-950">สรุปตามหมวดงาน</h2>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -389,7 +396,7 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
                       <tr>
                         <th className="px-3 py-2 font-medium">รายการ</th>
                         <th className="px-3 py-2 font-medium">หน่วย</th>
-                        <th className="px-3 py-2 text-right font-medium">ราคา (บาท)</th>
+                        <th className="px-3 py-2 text-right font-medium">ราคา (บาท, ไม่รวม VAT)</th>
                         <th className="px-3 py-2 text-center font-medium">อ้างอิงเดือน</th>
                       </tr>
                     </thead>
