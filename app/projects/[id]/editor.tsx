@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BoqItem, BoqProject, PriceSource, itemTotal, newId, projectTotal, sectionTotals, thb } from "@/lib/boq";
+import { BoqItem, BoqProject, PriceSource, itemTotal, newId, proposalSummary, projectTotal, sectionTotals, thb } from "@/lib/boq";
 import { loadProjects, saveProjects } from "@/lib/storage";
+import { loadPricelist, PrivatePrice } from "@/lib/pricelist";
 
 const THAI_MONTHS = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
 const CURRENT_TH_YEAR = new Date().getFullYear() + 543;
@@ -25,10 +26,16 @@ type Meta = {
 };
 
 // อายุราคาเป็นเดือน (นับจากเดือนอ้างอิงราคาถึงเดือนปัจจุบัน) — ใช้เตือนราคาเก่าเกิน 12 เดือน
-// ถ้าไม่รู้เดือนอ้างอิง (month = null) นับจากปีอย่างเดียวแบบ conservative
+// - tpso: นับจากปี/เดือนอ้างอิงราคา ถ้าไม่รู้เดือน (month = null) นับจากปีอย่างเดียวแบบ conservative
+// - private: นับจากวันที่อัปเดตราคาในคลังส่วนตัว ณ ตอนเลือก (priceAgeRef)
 function priceAgeMonths(src: PriceSource): number | null {
   const now = new Date();
   const nowM = (now.getFullYear() + 543) * 12 + (now.getMonth() + 1);
+  if (src.kind === "private") {
+    const d = new Date(src.priceAgeRef);
+    if (isNaN(d.getTime())) return null;
+    return nowM - ((d.getFullYear() + 543) * 12 + (d.getMonth() + 1));
+  }
   if (!src.month) return (now.getFullYear() + 543 - src.year) * 12;
   return nowM - (src.year * 12 + src.month);
 }
@@ -39,6 +46,7 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
 
   // state ของ picker "เลือกจากคลังราคา"
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pTab, setPTab] = useState<"tpso" | "mine">("tpso"); // แหล่งราคาใน picker
   const [meta, setMeta] = useState<Meta | null>(null);
   const [metaErr, setMetaErr] = useState<string | null>(null);
   const [pProv, setPProv] = useState("10");
@@ -50,6 +58,7 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
   const [pTotal, setPTotal] = useState(0);
   const [pLoading, setPLoading] = useState(false);
   const [pErr, setPErr] = useState<string | null>(null);
+  const [mine, setMine] = useState<PrivatePrice[]>([]); // คลังราคาส่วนตัว (โหลดตอนเปิดแท็บ "ของฉัน")
 
   useEffect(() => {
     const list = loadProjects();
@@ -66,7 +75,7 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
 
   // ค้นหาราคาเมื่อเงื่อนไขใน picker เปลี่ยน (เรียกผ่าน API ฝั่งเซิร์ฟเวอร์ — TPSO ไม่มี CORS)
   useEffect(() => {
-    if (!pickerOpen) return;
+    if (!pickerOpen || pTab !== "tpso") return;
     let alive = true;
     setPLoading(true);
     setPErr(null);
@@ -87,7 +96,7 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
     return () => {
       alive = false;
     };
-  }, [pickerOpen, pProv, pYear, pCat, debouncedQ]);
+  }, [pickerOpen, pTab, pProv, pYear, pCat, debouncedQ]);
 
   function update(next: BoqProject | null) {
     setProject(next);
@@ -128,6 +137,7 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
     setPQ("");
     setDebouncedQ("");
     setPErr(null);
+    setMine(loadPricelist()); // คลังส่วนตัวอ่านสดทุกครั้งที่เปิด (แก้ใน /my-prices แล้วเห็นทันที)
     setPickerOpen(true);
     if (!meta) {
       setMetaErr(null);
@@ -138,7 +148,7 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
     }
   }
 
-  // เลือกรายการจากคลังราคา → เพิ่มแถว BOQ พร้อมบันทึก PriceEvidence
+  // เลือกรายการจากคลังราคา สนค. → เพิ่มแถว BOQ พร้อมบันทึก PriceEvidence
   function pickRow(row: PriceRow) {
     if (!project) return;
     if (typeof row.price !== "number" || !isFinite(row.price)) return;
@@ -165,6 +175,43 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
     // จังหวัด/ปีที่เลือก กลายเป็นค่าอ้างอิงระดับโปรเจกต์ (ครั้งต่อไปเอาไว้ก่อน)
     update({ ...project, province: pProv, budgetYear: pYear, items: [...project.items, item] });
     setPickerOpen(false);
+  }
+
+  // เลือกรายการจากคลังราคาส่วนตัว (F2.1) → เพิ่มแถว BOQ พร้อม PriceEvidence แบบ private
+  function pickMine(entry: PrivatePrice) {
+    if (!project) return;
+    const last = project.items[project.items.length - 1];
+    const src: PriceSource = {
+      kind: "private",
+      entryId: entry.id,
+      category: entry.category,
+      note: entry.note,
+      priceAgeRef: entry.updatedAt,
+      priceAtPick: entry.price,
+      pickedAt: new Date().toISOString(),
+    };
+    const item: BoqItem = {
+      id: newId(),
+      section: last?.section ?? (entry.category === "ค่าแรง" ? "งานค่าแรง" : "การงานเบื้องต้น"),
+      name: entry.name,
+      unit: entry.unit || "หน่วย",
+      qty: 1,
+      price: entry.price,
+      source: src,
+    };
+    update({ ...project, items: [...project.items, item] });
+    setPickerOpen(false);
+  }
+
+  // คัดลอกรายการในตาราง (F2.3) — ทำซ้ำแถวเดิมมาแก้ต่อ (source คงที่มาราคาเดิม)
+  function duplicateItem(id: string) {
+    if (!project) return;
+    const idx = project.items.findIndex((it) => it.id === id);
+    if (idx < 0) return;
+    const copy: BoqItem = { ...project.items[idx], id: newId() };
+    const items = [...project.items];
+    items.splice(idx + 1, 0, copy);
+    update({ ...project, items });
   }
 
   function removeItem(id: string) {
@@ -198,14 +245,23 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
   }
 
   const totals = sectionTotals(project);
+  const isPrivate = project.mode === "private";
+  const proposal = isPrivate ? proposalSummary(project.items, project.factors) : null;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
-      <input
-        value={project.name}
-        onChange={(e) => update({ ...project, name: e.target.value })}
-        className="mb-1 w-full rounded-lg border border-transparent bg-transparent text-2xl font-bold text-blue-950 hover:border-slate-300 focus:border-blue-400"
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={project.name}
+          onChange={(e) => update({ ...project, name: e.target.value })}
+          className="mb-1 w-full rounded-lg border border-transparent bg-transparent text-2xl font-bold text-blue-950 hover:border-slate-300 focus:border-blue-400 sm:w-auto sm:flex-1"
+        />
+        {isPrivate && (
+          <span className="mb-1 rounded bg-teal-100 px-2 py-1 text-xs font-medium text-teal-800" title="โหมดเอกชน — สรุปท้ายตารางมีปัจจัยราคาเสนอที่ตั้งเอง">
+            เอกชน · ประมาณการ — ไม่ใช่ราคากลางตามหลักเกณฑ์
+          </span>
+        )}
+      </div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <input
           value={project.address}
@@ -254,9 +310,15 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
                     {it.source && (
                       <span
                         className={`ml-1 inline-block rounded px-1.5 py-0.5 text-[11px] sm:ml-[calc(5rem+0.5rem)] ${stale ? "bg-amber-100 text-amber-900" : "bg-blue-100 text-blue-800"}`}
-                        title={`ราคา สนค. ณ ตอนเลือก: ${thb(it.source.priceAtPick)}${edited ? " — ผู้ใช้แก้ราคาเองแล้ว" : ""}`}
+                        title={it.source.kind === "private"
+                          ? `ราคาจากคลังของฉัน ณ ตอนเลือก: ${thb(it.source.priceAtPick)}${it.source.note ? ` — ที่มา: ${it.source.note}` : ""}${edited ? " — ผู้ใช้แก้ราคาเองแล้ว" : ""}`
+                          : `ราคา สนค. ณ ตอนเลือก: ${thb(it.source.priceAtPick)}${edited ? " — ผู้ใช้แก้ราคาเองแล้ว" : ""}`}
                       >
-                        สนค. {it.source.provName} · {it.source.month ? `${THAI_MONTHS[it.source.month]} ${it.source.year}` : it.source.year}
+                        {it.source.kind === "private" ? (
+                          <>คลังของฉัน · {it.source.category}{it.source.note ? ` · ${it.source.note}` : ""}</>
+                        ) : (
+                          <>สนค. {it.source.provName} · {it.source.month ? `${THAI_MONTHS[it.source.month]} ${it.source.year}` : it.source.year}</>
+                        )}
                         {stale ? " · ราคาเก่าเกิน 12 เดือน" : ""}
                         {edited ? " · ปรับราคาแล้ว" : ""}
                       </span>
@@ -276,6 +338,7 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
                   </td>
                   <td className="px-3 py-2 text-right font-medium text-slate-800">{thb(itemTotal(it))}</td>
                   <td className="no-print px-2 py-2 text-center">
+                    <button onClick={() => duplicateItem(it.id)} className="mr-1 text-slate-400 hover:text-blue-600" aria-label="คัดลอกรายการ" title="คัดลอกแถวนี้มาแก้ต่อ">⧉</button>
                     <button onClick={() => removeItem(it.id)} className="text-slate-400 hover:text-red-600" aria-label="ลบรายการ">✕</button>
                   </td>
                 </tr>
@@ -286,10 +349,35 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
             )}
           </tbody>
           <tfoot>
-            <tr className="border-t-2 border-slate-300 font-semibold text-blue-950">
-              <td colSpan={4} className="px-3 py-3 text-right">รวมทั้งโครงการ</td>
-              <td colSpan={2} className="px-3 py-3 text-right text-lg text-green-700">{thb(projectTotal(project))}</td>
-            </tr>
+            {isPrivate && proposal && (
+              <>
+                <tr className="border-t-2 border-slate-300 font-semibold text-blue-950">
+                  <td colSpan={4} className="px-3 py-2 text-right">รวมราคาวัสดุ-แรงงาน (ต้นทุน)</td>
+                  <td colSpan={2} className="px-3 py-2 text-right">{thb(proposal.base)}</td>
+                </tr>
+                {proposal.lines.map((ln, i) => (
+                  <tr key={i} className="border-t border-slate-100 text-slate-600">
+                    <td colSpan={4} className="px-3 py-2 text-right text-sm">
+                      {ln.label} <span className="text-xs text-slate-500">({ln.formula})</span>
+                    </td>
+                    <td colSpan={2} className="px-3 py-2 text-right text-sm">{thb(ln.amount)}</td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-slate-300 font-semibold text-blue-950">
+                  <td colSpan={4} className="px-3 py-3 text-right">
+                    ราคาเสนอ (รวมทุกปัจจัย)
+                    <span className="block text-xs font-normal text-amber-900">ประมาณการ — ไม่ใช่ราคากลางตามหลักเกณฑ์</span>
+                  </td>
+                  <td colSpan={2} className="px-3 py-3 text-right text-lg text-green-700">{thb(proposal.proposalTotal)}</td>
+                </tr>
+              </>
+            )}
+            {!isPrivate && (
+              <tr className="border-t-2 border-slate-300 font-semibold text-blue-950">
+                <td colSpan={4} className="px-3 py-3 text-right">รวมทั้งโครงการ</td>
+                <td colSpan={2} className="px-3 py-3 text-right text-lg text-green-700">{thb(projectTotal(project))}</td>
+              </tr>
+            )}
           </tfoot>
         </table>
       </div>
@@ -299,6 +387,39 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
         ราคาที่อ้างอิงจากคลังราคา สนค. (สำนักงานนโยบายและแผนการขนส่ง) เป็นราคากลางท้องถิ่นเพื่อประกอบการประมาณการ —
         ไม่ใช่ราคามาตรฐานของกรมบัญชีกลางหรือหน่วยงานใด ควรปรับตามราคาจริงของพื้นที่ก่อนใช้ประกอบการจัดซื้อจัดจ้าง
       </p>
+
+      {/* ปัจจัยราคาเสนอ (F2.2) — เฉพาะโหมดเอกชน / แผงตั้งค่าไม่พิมพ์ แต่สรุปในตารางพิมพ์ออก */}
+      {isPrivate && (
+        <div className="no-print mt-6 rounded-xl border border-teal-300 bg-white p-5">
+          <h2 className="mb-1 text-lg font-semibold text-blue-950">ปัจจัยราคาเสนอ (โหมดเอกชน)</h2>
+          <p className="mb-3 text-xs text-slate-500">
+            ลำดับการคิด: ต้นทุนรวม → +เงินเผื่อจำเป็น → +กำไรและโอเวอร์เฮด → +ค่าดำเนินงาน (S.W.C.) → +VAT — ตั้งเป็น 0 เพื่อข้ามปัจจัยใด ๆ
+            ผลลัพธ์เป็นการประมาณการของคุณ ไม่ใช่ราคากลางตามหลักเกณฑ์
+          </p>
+          <div className="grid gap-3 sm:grid-cols-4">
+            {([
+              { key: "contingencyPct", label: "เงินเผื่อจำเป็น (%)", hint: "เช่น 3–5" },
+              { key: "profitPct", label: "กำไร + โอเวอร์เฮด (%)", hint: "เช่น 10–20" },
+              { key: "swcPct", label: "ค่าดำเนินงาน S.W.C. (%)", hint: "เช่น 5–10" },
+              { key: "vatPct", label: "VAT (%)", hint: "เช่น 7" },
+            ] as const).map((f) => (
+              <label key={f.key} className="block text-sm">
+                <span className="mb-1 block text-slate-600">{f.label}</span>
+                <input
+                  type="number" step="any" min="0"
+                  value={project.factors?.[f.key] ?? ""}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    update({ ...project, factors: { ...(project.factors ?? {}), [f.key]: isFinite(v) && v > 0 ? v : 0 } });
+                  }}
+                  placeholder={f.hint}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-right"
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-8">
         <h2 className="mb-3 text-lg font-semibold text-blue-950">สรุปตามหมวดงาน</h2>
@@ -323,15 +444,39 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-blue-950">เลือกรายการจากคลังราคา สนค. (TPSO)</h2>
+              <h2 className="text-lg font-semibold text-blue-950">เลือกรายการจากคลังราคา</h2>
               <button onClick={() => setPickerOpen(false)} className="text-slate-400 hover:text-red-600" aria-label="ปิด">✕</button>
             </div>
-            <p className="mb-3 text-xs text-slate-500">
-              ราคาอ้างอิงจากสำนักงานนโยบายและแผนการขนส่ง (สนค.) — ไม่ใช่ราคามาตรฐานของกรมบัญชีกลางหรือหน่วยงานใด
-              ควรปรับตามราคาจริงของพื้นที่ก่อนใช้ประกอบการจัดซื้อจัดจ้าง
-            </p>
 
-            <div className="mb-3 flex flex-wrap gap-2">
+            {/* แท็บแหล่งราคา — ราคา สนค. (TPSO) / คลังราคาของฉัน (F2.1) */}
+            <div className="mb-3 flex gap-1 rounded-lg bg-slate-100 p-1">
+              <button onClick={() => setPTab("tpso")}
+                className={`flex-1 rounded px-3 py-1.5 text-sm ${pTab === "tpso" ? "bg-white font-medium text-blue-950 shadow" : "text-slate-600 hover:text-slate-800"}`}>
+                ราคา สนค. (TPSO)
+              </button>
+              <button onClick={() => setPTab("mine")}
+                className={`flex-1 rounded px-3 py-1.5 text-sm ${pTab === "mine" ? "bg-white font-medium text-blue-950 shadow" : "text-slate-600 hover:text-slate-800"}`}>
+                คลังราคาของฉัน ({mine.length})
+              </button>
+            </div>
+
+            {pTab === "tpso" && (
+              <p className="mb-3 text-xs text-slate-500">
+                ราคาอ้างอิงจากสำนักงานนโยบายและแผนการขนส่ง (สนค.) — ไม่ใช่ราคามาตรฐานของกรมบัญชีกลางหรือหน่วยงานใด
+                ควรปรับตามราคาจริงของพื้นที่ก่อนใช้ประกอบการจัดซื้อจัดจ้าง
+              </p>
+            )}
+
+            {pTab === "mine" && (
+              <p className="mb-3 text-xs text-slate-500">
+                ราคาส่วนตัวที่คุณบันทึกเอง (ค่าแรง อุปกรณ์ วัสดุท้องถิ่น) — ไม่ใช่ราคากลางตามหลักเกณฑ์
+                จัดการรายการได้ที่{" "}
+                <a href="/my-prices" className="underline" target="_blank" rel="noopener noreferrer">คลังราคาของฉัน</a>
+              </p>
+            )}
+
+            {pTab === "tpso" && (
+              <div className="mb-3 flex flex-wrap gap-2">
               <select value={pProv} onChange={(e) => setPProv(e.target.value)}
                 className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800">
                 {meta ? (
@@ -357,35 +502,36 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
               </select>
               <input value={pQ} onChange={(e) => setPQ(e.target.value)} placeholder="ค้นหา เช่น คอนกรีต, อิฐ, เหล็ก"
                 className="min-w-48 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800" />
-            </div>
+              </div>
+            )}
 
-            {pProv === "10" && (
+            {pTab === "tpso" && pProv === "10" && (
               <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
                 หมายเหตุ: สนค. มีประกาศยกเลิกการเผยแพร่ราคาส่วนกลางหลายช่วงเดือน — แนะนำเลือกจังหวัดเพื่อใช้ราคารายจังหวัด
               </div>
             )}
 
-            {metaErr && (
+            {pTab === "tpso" && metaErr && (
               <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
                 โหลดรายชื่อจังหวัด/หมวดไม่สำเร็จ ({metaErr}) — ลองปิดหน้าต่างนี้แล้วเปิดใหม่ หรือตรวจข้อมูลที่{" "}
                 <a href="https://index.tpso.go.th/construction-material-prices" target="_blank" rel="noopener noreferrer" className="underline">index.tpso.go.th ↗</a>
               </div>
             )}
 
-            {pLoading && (
+            {pTab === "tpso" && pLoading && (
               <div className="py-12 text-center text-sm text-slate-500">
                 กำลังดึงราคาจาก สนค. … (ครั้งแรกของจังหวัด/ปีที่เลือกอาจใช้เวลาถึง 30 วินาที)
               </div>
             )}
 
-            {!pLoading && pErr && (
+            {pTab === "tpso" && !pLoading && pErr && (
               <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
                 ดึงข้อมูลราคาไม่สำเร็จ ({pErr}) — ลองอีกครั้ง หรือตรวจข้อมูลที่{" "}
                 <a href="https://index.tpso.go.th/construction-material-prices" target="_blank" rel="noopener noreferrer" className="underline">index.tpso.go.th ↗</a>
               </div>
             )}
 
-            {!pLoading && !pErr && (
+            {pTab === "tpso" && !pLoading && !pErr && (
               <>
                 <p className="mb-2 text-xs text-slate-500">
                   พบ {pTotal.toLocaleString("th-TH")} รายการ — แสดง {rows.length} รายการแรก (พิมพ์คำค้นเพิ่มเพื่อกรอง) · คลิกแถวเพื่อเพิ่มลง BOQ
@@ -425,6 +571,46 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
                   </table>
                 </div>
               </>
+            )}
+
+            {pTab === "mine" && (
+              <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-100 text-left text-slate-600">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">รายการ</th>
+                      <th className="px-3 py-2 font-medium">หมวด</th>
+                      <th className="px-3 py-2 font-medium">หน่วย</th>
+                      <th className="px-3 py-2 text-right font-medium">ราคา (บาท)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mine
+                      .filter((e) => { const qq = pQ.trim(); return !qq || e.name.includes(qq) || (e.note ?? "").includes(qq); })
+                      .map((e) => (
+                        <tr key={e.id} onClick={() => pickMine(e)} className="cursor-pointer border-t border-slate-100 hover:bg-slate-50">
+                          <td className="px-3 py-2">
+                            <div className="text-slate-800">{e.name}</div>
+                            {e.note && <div className="text-xs text-slate-500">{e.note}</div>}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600">{e.category}</td>
+                          <td className="px-3 py-2 text-slate-600">{e.unit}</td>
+                          <td className="px-3 py-2 text-right font-medium text-green-700">
+                            {e.price.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      ))}
+                    {mine.filter((e) => { const qq = pQ.trim(); return !qq || e.name.includes(qq) || (e.note ?? "").includes(qq); }).length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-3 py-8 text-center text-slate-500">
+                          ยังไม่มีรายการในคลังของฉัน (หรือไม่ตรงคำค้น) — เพิ่มได้ที่{" "}
+                          <a href="/my-prices" target="_blank" rel="noopener noreferrer" className="underline">หน้า คลังราคาของฉัน</a>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>
