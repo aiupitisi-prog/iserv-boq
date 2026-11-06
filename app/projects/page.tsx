@@ -90,11 +90,24 @@ export default function ProjectsPage() {
   function importJson(file: File) {
     file.text().then((text) => {
       try {
-        const data = JSON.parse(text) as BoqProject;
-        const p: BoqProject = { ...data, id: newId(), name: data.name + " (นำเข้า)" };
+        const data = JSON.parse(text) as Partial<BoqProject>;
+        // ตรวจโครงสร้างขั้นต่ำก่อน persist — กันโปรเจกต์พังค้างใน localStorage (items ต้องเป็น array)
+        if (!data || typeof data !== "object" || !Array.isArray(data.items)) {
+          alert("ไฟล์ไม่ใช่ BOQ ที่ถูกต้อง (ต้องมี items เป็นรายการ) — โปรเจกต์เดิมไม่ถูกแก้ไข");
+          return;
+        }
+        const p: BoqProject = {
+          ...data,
+          id: newId(),
+          name: (data.name ?? "BOQ นำเข้า") + " (นำเข้า)",
+          boqType: data.boqType ?? "ปร.1",
+          // normalize โหมด — ค่าแปลกปลอมถือว่าเป็น gov (ปัจจัย % จะถูกเพิกเฉยตามกฎเหล็ก)
+          mode: data.mode === "private" ? "private" : "gov",
+          items: data.items.map((it) => ({ ...it, id: newId() })), // ให้ id ใหม่ทั้งหมด กัน id ซ้ำข้ามไฟล์
+        };
         persist([p, ...projects]);
       } catch {
-        alert("ไฟล์ JSON ไม่ถูกต้อง");
+        alert("ไฟล์ JSON ไม่ถูกต้อง — โปรเจกต์เดิมไม่ถูกแก้ไข");
       }
     });
   }
