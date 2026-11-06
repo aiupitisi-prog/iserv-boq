@@ -40,9 +40,15 @@ export default function CommercialPage() {
         ))}
       </div>
       <div className="mt-8 rounded-xl border border-blue-200 bg-blue-50 p-6 text-sm text-blue-900">
-        หากต้องการใช้งานจริงตอนนี้ แนะนำเริ่มจาก{" "}
-        <a href="/projects" className="underline">พื้นที่จัดทำราคากลาง / BOQ</a>{" "}
-        ก่อน แล้วส่งออกไฟล์ JSON เพื่อแชร์กับทีมหรือนำเข้าเครื่องอื่น
+        เริ่มใช้งานได้แล้ว:{" "}
+        <a href="/projects?mode=private" className="underline">สร้าง BOQ เอกชน (ใบเสนอราคา — ประมาณการ)</a>{" "}
+        — สรุปท้ายตารางคิดเงินเผื่อจำเป็น กำไร+โอเวอร์เฮด S.W.C. และ VAT ตามลำดับที่คุณตั้ง ·{" "}
+        <a href="/my-prices" className="underline">คลังราคาของฉัน</a>{" "}
+        เก็บค่าแรง/อุปกรณ์ที่ไม่มีใน สนค. — หมายเหตุ: ผลลัพธ์เป็นการประมาณการเท่านั้น ไม่ใช่ราคากลางตามหลักเกณฑ์
+      </div>
+      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
+        หากต้องการทำ BOQ ราชการ (แบบฟอร์ม ปร.1–ปร.4) ไปที่{" "}
+        <a href="/projects" className="underline">พื้นที่จัดทำราคากลาง / BOQ</a>
       </div>
     </div>
   );
