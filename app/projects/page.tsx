@@ -96,14 +96,19 @@ export default function ProjectsPage() {
           alert("ไฟล์ไม่ใช่ BOQ ที่ถูกต้อง (ต้องมี items เป็นรายการ) — โปรเจกต์เดิมไม่ถูกแก้ไข");
           return;
         }
+        // กำหนดค่าทุกฟิลด์ที่จำเป็นชัดเจน (ไม่ spread จาก Partial — กัน undefined ลง required field)
         const p: BoqProject = {
-          ...data,
           id: newId(),
           name: (data.name ?? "BOQ นำเข้า") + " (นำเข้า)",
+          address: data.address ?? "",
           boqType: data.boqType ?? "ปร.1",
+          createdAt: new Date().toISOString(),
+          items: data.items.map((it) => ({ ...it, id: newId() })), // ให้ id ใหม่ทั้งหมด กัน id ซ้ำข้ามไฟล์
+          province: data.province,
+          budgetYear: data.budgetYear,
           // normalize โหมด — ค่าแปลกปลอมถือว่าเป็น gov (ปัจจัย % จะถูกเพิกเฉยตามกฎเหล็ก)
           mode: data.mode === "private" ? "private" : "gov",
-          items: data.items.map((it) => ({ ...it, id: newId() })), // ให้ id ใหม่ทั้งหมด กัน id ซ้ำข้ามไฟล์
+          factors: data.factors,
         };
         persist([p, ...projects]);
       } catch {
