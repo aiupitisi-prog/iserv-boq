@@ -129,3 +129,28 @@ export async function tpsoPrices(type: string, year: number): Promise<TpsoItem[]
   priceCache.set(key, { at: Date.now(), rows });
   return rows;
 }
+
+export type TpsoSearchResult = {
+  total: number;
+  rows: TpsoItem[];
+};
+
+// ค้นหา/กรองในชุดข้อมูลที่แคชอยู่ (เรียกจากฝั่งเซิร์ฟเวอร์เท่านั้น)
+// ส่งเฉพาะผลลัพธ์หน้าเล็ก ๆ — ห้ามยกทั้งชุด (หลายพันแถว) ไป client
+export async function tpsoSearch(
+  type: string,
+  year: number,
+  opts: { cat?: string; q?: string; limit?: number; offset?: number } = {}
+): Promise<TpsoSearchResult> {
+  const all = await tpsoPrices(type, year);
+  const cat = opts.cat ?? "";
+  const q = (opts.q ?? "").trim();
+  const filtered = all.filter((r) => {
+    if (cat && r.headCategory !== cat) return false;
+    if (q && !(r.name.includes(q) || r.code.includes(q))) return false;
+    return true;
+  });
+  const limit = Math.min(Math.max(opts.limit ?? 40, 1), 100);
+  const offset = Math.max(opts.offset ?? 0, 0);
+  return { total: filtered.length, rows: filtered.slice(offset, offset + limit) };
+}
