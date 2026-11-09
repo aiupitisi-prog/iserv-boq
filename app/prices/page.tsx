@@ -1,9 +1,5 @@
 import { tpsoMaster, tpsoPrices } from "@/lib/tpso";
-import {
-  readMasterSnapshot,
-  readSnapshot,
-  snapshotAgeHours,
-} from "@/lib/snapshot";
+import { readMasterSnapshot, readSnapshot } from "@/lib/snapshot";
 
 export const metadata = {
   title: "คลังราคา — อ้างอิงราคาวัสดุก่อสร้าง สนค. (TPSO) | ระบบ BOQ งานก่อสร้าง",
@@ -65,7 +61,7 @@ export default async function PricesPage({
   let masterError: string | null = null;
   let priceError: string | null = null;
 
-  // ---------- master (จังหวัด/หมวด): snapshot-g่อน → สดถ้ายังไม่มี ----------
+  // ---------- master (จังหวัด/หมวด): snapshot ก่อน → สดถ้ายังไม่มี ----------
   try {
     const masterSnap = readMasterSnapshot();
     if (masterSnap) {
@@ -81,7 +77,7 @@ export default async function PricesPage({
     masterError = e instanceof Error ? e.message : "โหลดรายชื่อจังหวัด/หมวดไม่สำเร็จ";
   }
 
-  // ---------- ราคา: snapshot-g่อน → สดถ้ายังไม่มี ----------
+  // ---------- ราคา: snapshot ก่อน → สดถ้ายังไม่มี ----------
   try {
     const snap = readSnapshot(prov, year);
     if (snap && snap.rows.length > 0) {
@@ -113,7 +109,10 @@ export default async function PricesPage({
   const paged = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
   const baseQ = { prov, y: String(year), cat, q };
 
-  const snapshotAge = priceFetchedAt ? snapshotAgeHours(prov, year) : null;
+  const rawAge = priceFetchedAt
+    ? (Date.now() - new Date(priceFetchedAt).getTime()) / (1000 * 60 * 60)
+    : NaN;
+  const snapshotAge = Number.isFinite(rawAge) ? rawAge : null; // กัน fetchedAt เสีย → "NaN ชั่วโมงที่แล้ว"
   const isStale = snapshotAge !== null && snapshotAge > 24;
 
   return (
