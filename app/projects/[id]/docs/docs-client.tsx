@@ -7,7 +7,7 @@ import { loadRulesets, Ruleset } from "@/lib/ruleset";
 import { computeGovBOQSafe } from "@/lib/calc/compute";
 import { formatSatang, mulQty, satangToBaht, type Satang } from "@/lib/calc/money";
 import { bahtText } from "@/lib/bahttext";
-import { partLabel, sourceLabel } from "@/lib/boq";
+import { sourceLabel, sourcePickedAt } from "@/lib/boq";
 
 // ชุดเอกสารงานราชการ 9 ฉบับ (F3.6) / ใบเสนอราคาเอกชน (โหมด private)
 // ทุกฉบับพิมพ์ A4 ขาวดำ ขึ้นหน้าใหม่เอง (.doc-sheet) มีช่องลงนาม ผู้จัดทำ/ตรวจสอบ/อนุมัติ
@@ -75,7 +75,7 @@ export default function DocsClient({ projectId }: { projectId: string }) {
   const [only, setOnly] = useState<number | null>(null); // พิมพ์เฉพาะฉบับ — index ของฉบับ (null = ทั้งชุด)
 
   useEffect(() => {
-    setProject(loadProjects().find((p) => p.id === projectId) ?? null);
+    loadProjects().then((list) => setProject(list.find((p) => p.id === projectId) ?? null));
     setRulesets(loadRulesets());
     setLoaded(true);
   }, [projectId]);
@@ -276,18 +276,18 @@ export default function DocsClient({ projectId }: { projectId: string }) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ it, s }, i) => (
-                  s.mat > 0 ? (
+                {rows
+                  .filter(({ s }) => s.mat > 0)
+                  .map(({ it, s }, idx) => (
                     <tr key={it.id}>
-                      <td className="border border-slate-300 px-2 py-1">{i + 1}</td>
+                      <td className="border border-slate-300 px-2 py-1">{idx + 1}</td>
                       <td className="border border-slate-300 px-2 py-1">{it.name}{it.note ? ` (${it.note})` : ""}</td>
                       <td className="border border-slate-300 px-2 py-1">{it.unit}</td>
                       <td className="border border-slate-300 px-2 py-1 text-right">{it.qty.toLocaleString("th-TH", { maximumFractionDigits: 4 })}</td>
                       <td className="border border-slate-300 px-2 py-1 text-right">{it.matPrice !== undefined ? it.matPrice.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : it.price.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td className="border border-slate-300 px-2 py-1 text-right">{formatSatang(s.mat)}</td>
                     </tr>
-                  ) : null
-                ))}
+                  ))}
                 <tr className="font-semibold">
                   <td className="border border-slate-300 px-2 py-1 text-right" colSpan={5}>รวมส่วน ก. ค่าวัสดุอย่างน้อยที่สุด</td>
                   <td className="border border-slate-300 px-2 py-1 text-right">{formatSatang(matTotal)}</td>
@@ -525,7 +525,7 @@ export default function DocsClient({ projectId }: { projectId: string }) {
                   <td className="border border-slate-300 px-2 py-1">{sourceLabel(it)}</td>
                   <td className="border border-slate-300 px-2 py-1 text-right">{it.source ? it.source.priceAtPick.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>
                   <td className="border border-slate-300 px-2 py-1 text-right">{it.price.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                  <td className="border border-slate-300 px-2 py-1">{it.source ? new Date(it.source.pickedAt).toLocaleDateString("th-TH") : "—"}</td>
+                  <td className="border border-slate-300 px-2 py-1">{it.source ? sourcePickedAt(it) : "—"}</td>
                 </tr>
               ))}
             </tbody>
