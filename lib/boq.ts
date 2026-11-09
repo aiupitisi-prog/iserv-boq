@@ -100,6 +100,17 @@ export type BoqItem = {
   note?: string; // เหตุผลกำกับ เช่น ที่มาค่าแรงแบบ fallback — แสดงในเอกสารพิมพ์
 };
 
+// ข้อมูลการประมูล / สัญญาจ้าง — ใช้จัดทำ "แบบแสดงรายการ ปริมาณงาน และราคา (แนบท้ายสัญญา)"
+// ที่ปรับลดราคาตามคำเสนอของผู้ได้รับคัดเลือก — ฟิลด์ optional + backward compatible
+// (โปรเจกต์เก่าใน IDB/localStorage ที่ไม่มีช่องนี้ ยังเปิดและแก้ได้ปกติ)
+export type ProjectAward = {
+  winningPrice?: number; // ราคาตามคำเสนอของผู้ได้รับคัดเลือก (บาท) — จากผลการเปิดประมูล
+  contractNoteDate?: string; // สัญญาเลขที่ / ลงวันที่
+  contractor?: string; // ชื่อผู้รับจ้าง
+  contractorSigner?: string; // ผู้ลงนามฝ่ายผู้รับจ้าง
+  savedAt?: string; // เวลาบันทึกล่าสุด (ISO)
+};
+
 export type BoqProject = {
   id: string;
   name: string;
@@ -112,6 +123,7 @@ export type BoqProject = {
   mode?: ProjectMode; // โหมดโปรเจกต์ — ไม่ระบุ = "gov" (โปรเจกต์เก่า)
   factors?: ProjectFactors; // ปัจจัยราคาเสนอ (โหมดเอกชนเท่านั้น)
   rulesetId?: string; // pin ชุดกฎราคากลางที่ใช้ (เตรียมเครื่องยนต์เฟส 3)
+  award?: ProjectAward; // ข้อมูลการประมูล/สัญญา — ใช้ที่เอกสารแนบท้ายสัญญา (โปรเจกต์เก่า = undefined)
 };
 
 export function newId(): string {

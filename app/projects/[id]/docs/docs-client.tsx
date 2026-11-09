@@ -2,16 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { BoqItem, BoqProject, itemTotal, proposalSummary, thb } from "@/lib/boq";
-import { loadProjects } from "@/lib/storage";
+import { loadProjects, saveProject } from "@/lib/storage";
 import { loadRulesets, Ruleset } from "@/lib/ruleset";
 import { computeGovBOQSafe } from "@/lib/calc/compute";
+import { computePriceReduction } from "@/lib/calc/reduce";
 import { formatSatang, mulQty, satangToBaht, type Satang } from "@/lib/calc/money";
 import { bahtText } from "@/lib/bahttext";
 import { sourceLabel, sourcePickedAt } from "@/lib/boq";
 
-// ชุดเอกสารงานราชการ 9 ฉบับ (F3.6) / ใบเสนอราคาเอกชน (โหมด private)
+// ชุดเอกสารงานราชการ 9 ฉบับ (F3.6) + ฉบับที่ 10: แบบแสดงรายการ ปริมาณงาน และราคา (แนบท้ายสัญญา —
+// ปรับลดราคาจากผู้เสนอราคา อิงตัวอย่างระบบ ว 651 ที่ผู้ใช้แนบ) / ใบเสนอราคาเอกชน (โหมด private)
 // ทุกฉบับพิมพ์ A4 ขาวดำ ขึ้นหน้าใหม่เอง (.doc-sheet) มีช่องลงนาม ผู้จัดทำ/ตรวจสอบ/อนุมัติ
-// ตัวเงินทั้งหมดมาจากเครื่องยนต์ lib/calc (สตางค์ integer) — หน้านี้แค่แสดงผล
+// ตัวเงินทั้งหมดมาจากเครื่องยนต์ lib/calc (สตางค์ integer) — ฉบับที่ 10 เพิ่มฟอร์มกรอกข้อมูลการประมูล (บันทึกลงโปรเจกต์)
 
 function thDate(d: Date): string {
   return d.toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" });
@@ -27,6 +29,11 @@ function splitSatang(it: BoqItem): { mat: Satang; lab: Satang; unsplit: boolean 
     return { mat: 0, lab: total, unsplit: false };
   }
   return { mat: total, lab: 0, unsplit: total !== 0 };
+}
+
+// ราคา/หน่วยหลังปรับลด — แสดง 2–4 ตำแหน่งทศนิยม (แสดงผลเท่านั้น ห้ามนำไปคำนวณต่อ)
+function fmtUnit(baht: number): string {
+  return baht.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 }
 
 function SigBlock({ roles }: { roles: string[] }) {
@@ -67,6 +74,75 @@ function WarningNote({ children }: { children: React.ReactNode }) {
 }
 
 const DOC_ROLES: [string, string, string] = ["ผู้จัดทำราคา", "ผู้ตรวจสอบราคา", "ผู้อนุมัติราคา"];
+
+// ฟอร์มข้อมูลการประมูล/สัญญา สำหรับฉบับที่ 10 (แนบท้ายสัญญา) — บันทึกลงโปรเจกต์ของเครื่องนี้
+// (ช่อง ProjectAward ฟิลด์ใหม่ optional + backward compatible — โปรเจกต์เก่าไม่มีช่องนี้ยังใช้ได้ปกติ)
+function AwardForm({ project, onSaved }: { project: BoqProject; onSaved: (p: BoqProject) => void }) {
+  const [price, setPrice] = useState(project.award?.winningPrice != null ? String(project.award.winningPrice) : "");
+  const [contract, setContract] = useState(project.award?.contractNoteDate ?? "");
+  const [contractor, setContractor] = useState(project.award?.contractor ?? "");
+  const [signer, setSigner] = useState(project.award?.contractorSigner ?? "");
+  const [saved, setSaved] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const num = parseFloat(price.replace(/,/g, ""));
+  const valid = isFinite(num) && num > 0;
+
+  async function save() {
+    if (!valid || busy) return;
+    setBusy(true);
+    try {
+      const next: BoqProject = {
+        ...project,
+        award: {
+          winningPrice: num,
+          contractNoteDate: contract.trim() || undefined,
+          contractor: contractor.trim() || undefined,
+          contractorSigner: signer.trim() || undefined,
+          savedAt: new Date().toISOString(),
+        },
+      };
+      await saveProject(next);
+      onSaved(next);
+      setSaved(new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const inputCls = "mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm";
+  return (
+    <div className="no-print mb-4 rounded border border-blue-300 bg-blue-50 p-3 text-sm">
+      <p className="mb-2 text-xs text-slate-600">
+        ฉบับที่ 10: แนบท้ายสัญญา — กรอกข้อมูลจากผลการเปิดประมูล แล้วกดบันทึก (เก็บในโปรเจกต์ของเครื่องนี้เท่านั้น)
+      </p>
+      <div className="grid gap-2 md:grid-cols-4">
+        <label className="text-xs text-slate-700">
+          ราคาตามคำเสนอของผู้ได้รับคัดเลือก (บาท) *
+          <input type="number" step="0.01" min="0" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} className={inputCls} />
+        </label>
+        <label className="text-xs text-slate-700">
+          สัญญาเลขที่ / ลงวันที่
+          <input value={contract} onChange={(e) => setContract(e.target.value)} className={inputCls} />
+        </label>
+        <label className="text-xs text-slate-700">
+          ชื่อผู้รับจ้าง
+          <input value={contractor} onChange={(e) => setContractor(e.target.value)} className={inputCls} />
+        </label>
+        <label className="text-xs text-slate-700">
+          ผู้ลงนามฝ่ายผู้รับจ้าง
+          <input value={signer} onChange={(e) => setSigner(e.target.value)} className={inputCls} />
+        </label>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button onClick={save} disabled={!valid || busy} className="rounded bg-blue-700 px-3 py-1 text-xs font-medium text-white hover:bg-blue-800 disabled:opacity-50">
+          บันทึกข้อมูลการประมูล
+        </button>
+        {saved && <span className="text-xs text-emerald-700">บันทึกแล้ว {saved}</span>}
+        {!valid && <span className="text-xs text-amber-700">กรอก &quot;ราคาตามคำเสนอ&quot; เป็นจำนวนเงินมากกว่า 0 เพื่อเปิดตารางนี้</span>}
+      </div>
+    </div>
+  );
+}
 
 export default function DocsClient({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<BoqProject | null>(null);
@@ -203,8 +279,8 @@ export default function DocsClient({ projectId }: { projectId: string }) {
     );
   }
 
-  // ---------- โหมดราชการ: ชุดเอกสาร 9 ฉบับ ----------
-  const TOTAL_DOCS = 9;
+  // ---------- โหมดราชการ: ชุดเอกสาร 9 ฉบับ + แนบท้ายสัญญา (ปรับลดราคาตามคำเสนอ) ----------
+  const TOTAL_DOCS = 10;
 
   const sheets: { title: string; body: React.ReactNode }[] = [
     // 1) บันทึกข้อความขออนุมัติจัดทำราคากลาง
@@ -578,6 +654,195 @@ export default function DocsClient({ projectId }: { projectId: string }) {
         </>
       ),
     },
+
+    // 10) แบบแสดงรายการ ปริมาณงาน และราคา (แนบท้ายสัญญา) — ปรับลดราคาตามคำเสนอของผู้ได้รับคัดเลือก
+    {
+      title: "แบบแสดงรายการ ปริมาณงาน และราคา (แนบท้ายสัญญา)",
+      body: (() => {
+        const award = project.award;
+        const hasPrice = typeof award?.winningPrice === "number" && award.winningPrice > 0;
+        const reduce = hasPrice && calc ? computePriceReduction(project, calc, award!.winningPrice!) : null;
+        const balId = reduce?.ok ? reduce.balanceItemId : null;
+        const balanceLine = balId ? reduce!.lines.find((l) => l.itemId === balId) ?? null : null;
+
+        // แถวตาราง: แบ่งหมวด งานก่อสร้าง / ครุภัณฑ์ ขึ้นหัวหมวดงานเมื่อเปลี่ยนหมวด (เก็บลำดับต่อเนื่อง)
+        const itemRows: React.ReactNode[] = [];
+        if (reduce && reduce.ok) {
+          let no = 0;
+          for (const part of ["construction", "equipment"] as const) {
+            const ls = reduce.lines.filter((l) => l.part === part);
+            if (ls.length === 0) continue;
+            itemRows.push(
+              <tr key={"h-" + part}>
+                <td colSpan={6} className="border border-slate-300 bg-slate-200 px-2 py-1 text-left font-bold">
+                  {part === "construction"
+                    ? "งานก่อสร้าง — ปรับลดทุกรายการด้วยอัตราร้อยละเดียวกัน"
+                    : "ครุภัณฑ์จัดซื้อ — แยกจากฐาน Factor F (กฎเหล็ก)"}
+                </td>
+              </tr>,
+            );
+            let lastSection: string | null = null;
+            for (const l of ls) {
+              if (l.section !== lastSection) {
+                itemRows.push(
+                  <tr key={"s-" + part + "-" + no}>
+                    <td colSpan={6} className="border border-slate-300 bg-slate-50 px-2 py-1 text-left font-semibold">
+                      {l.section}
+                    </td>
+                  </tr>,
+                );
+                lastSection = l.section;
+              }
+              no += 1;
+              itemRows.push(
+                <tr key={l.itemId}>
+                  <td className="border border-slate-300 px-2 py-1 text-center">{no}</td>
+                  <td className="border border-slate-300 px-2 py-1">{l.name || "—"}</td>
+                  <td className="border border-slate-300 px-2 py-1 text-center">{l.unit}</td>
+                  <td className="border border-slate-300 px-2 py-1 text-right">{l.qty.toLocaleString("th-TH", { maximumFractionDigits: 4 })}</td>
+                  <td className="border border-slate-300 px-2 py-1 text-right">{fmtUnit(l.reducedUnitBaht)}</td>
+                  <td className="border border-slate-300 px-2 py-1 text-right font-semibold">{formatSatang(l.reducedSat)}</td>
+                </tr>,
+              );
+            }
+          }
+        }
+
+        return (
+          <>
+            <AwardForm project={project} onSaved={setProject} />
+            <DocTitle no={10} total={TOTAL_DOCS} title="แบบแสดงรายการ ปริมาณงาน และราคา (แนบท้ายสัญญา)" />
+            <p className="mb-3 text-center text-xs text-slate-600">
+              เอกสารแนบท้ายสัญญาจ้างก่อสร้าง — แสดงราคาต่อหน่วยและราคารวมตามปรับลดจากราคากลาง เป็นราคาตามคำเสนอของผู้ได้รับคัดเลือก
+            </p>
+            <table className="w-full text-xs">
+              <tbody>
+                <tr>
+                  <td className="border border-slate-300 bg-slate-100 px-2 py-1 font-bold">โครงการ</td>
+                  <td className="border border-slate-300 px-2 py-1">{project.name || "—"}</td>
+                  <td className="border border-slate-300 bg-slate-100 px-2 py-1 font-bold">สัญญาเลขที่ / ลงวันที่</td>
+                  <td className="border border-slate-300 px-2 py-1">{award?.contractNoteDate?.trim() || "…"}</td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 bg-slate-100 px-2 py-1 font-bold">ที่ตั้งงาน</td>
+                  <td className="border border-slate-300 px-2 py-1">{project.address || "—"}</td>
+                  <td className="border border-slate-300 bg-slate-100 px-2 py-1 font-bold">ผู้รับจ้าง</td>
+                  <td className="border border-slate-300 px-2 py-1">{award?.contractor?.trim() || "…"}</td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 bg-slate-100 px-2 py-1 font-bold">ราคากลางรวม</td>
+                  <td className="border border-slate-300 px-2 py-1">{calc ? `${formatSatang(calc.total)} บาท` : "คำนวณไม่สำเร็จ (ดูแจ้งเตือนด้านบนของหน้า)"}</td>
+                  <td className="border border-emerald-300 bg-emerald-50 px-2 py-1 font-bold">วงเงินตามสัญญา</td>
+                  <td className="border border-slate-300 px-2 py-1 font-bold">
+                    {reduce ? `${formatSatang(reduce.winningSat)} บาท` : hasPrice ? `${fmtUnit(award!.winningPrice!)} บาท` : "…"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            {!reduce && (
+              <WarningNote>
+                ตารางนี้ยังจัดทำไม่ได้ — ต้องกรอก &quot;ราคาตามคำเสนอของผู้ได้รับคัดเลือก&quot; ในช่องด้านบนแล้วกดบันทึก และต้องคำนวณราคากลางสำเร็จ (ดูแจ้งเตือนด้านบนของหน้า)
+              </WarningNote>
+            )}
+            {reduce && !reduce.ok && (
+              <p className="mb-3 rounded border border-red-400 bg-red-50 p-2 text-xs text-red-800">{reduce.error}</p>
+            )}
+
+            {reduce?.ok && (
+              <>
+                <table className="mt-3 w-full text-xs">
+                  <tbody>
+                    <tr>
+                      <td className="border border-slate-300 px-2 py-1">(1) ราคากลางส่วนรายการ BOQ (ก. + ข. ×Factor F + ครุภัณฑ์) — ฐานส่วนที่ปรับลด</td>
+                      <td className="w-36 border border-slate-300 px-2 py-1 text-right">{formatSatang(reduce.reducibleBaseSat)} บาท</td>
+                    </tr>
+                    {reduce.fixedLines.map((f, i) => (
+                      <tr key={"fx-" + i}>
+                        <td className="border border-slate-300 px-2 py-1 text-slate-600">แยกบรรทัด — {f.label}</td>
+                        <td className="border border-slate-300 px-2 py-1 text-right text-slate-600">{formatSatang(f.satang)} บาท</td>
+                      </tr>
+                    ))}
+                    <tr>
+                      <td className="border border-slate-300 px-2 py-1">(2) ราคาตามคำเสนอของผู้ได้รับคัดเลือกหักส่วนคงเดิม — เป้าหมายส่วนรายการ</td>
+                      <td className="border border-slate-300 px-2 py-1 text-right">{formatSatang(reduce.winItemsSat)} บาท</td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 px-2 py-1">(3) ผลต่างที่ต้องปรับลด = (1) − (2)</td>
+                      <td className="border border-slate-300 px-2 py-1 text-right font-bold text-red-700">{formatSatang(reduce.diffSat)} บาท</td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 px-2 py-1 font-semibold">อัตราร้อยละที่ต้องปรับลดทุกรายการ [ (3) ÷ (1) ]</td>
+                      <td className="border border-slate-300 px-2 py-1 text-right font-bold">{(reduce.reducePct ?? 0).toFixed(2)} %</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <WarningNote>
+                  <ul className="list-disc space-y-1 pl-4">
+                    {reduce.warnings.map((w, i) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                    {reduce.balanceAppliedSat !== 0 && balanceLine && (
+                      <li>
+                        รายการ &quot;{balanceLine.name}&quot; ถูกปรับบวก/หัก {reduce.balanceAppliedSat > 0 ? "+" : "−"}
+                        {Math.abs(reduce.balanceAppliedSat)} สตางค์ (เศษจากการปัดเศษทุกบรรทัด) เพื่อให้ผลรวมทุกบรรทัดตรงวงเงินตามสัญญาพอดี
+                      </li>
+                    )}
+                  </ul>
+                </WarningNote>
+
+                <table className="mt-3 w-full text-xs">
+                  <thead>
+                    <tr className="bg-slate-100 text-center">
+                      <th className="w-10 border border-slate-300 px-2 py-1">ลำดับ</th>
+                      <th className="border border-slate-300 px-2 py-1 text-left">รายการ</th>
+                      <th className="w-14 border border-slate-300 px-2 py-1">หน่วย</th>
+                      <th className="w-20 border border-slate-300 px-2 py-1 text-right">จำนวน</th>
+                      <th className="w-28 border border-slate-300 px-2 py-1 text-right">ราคาต่อหน่วย (ตามปรับลด)</th>
+                      <th className="w-32 border border-slate-300 px-2 py-1 text-right">รวมเงิน (ตามปรับลด)</th>
+                    </tr>
+                  </thead>
+                  <tbody>{itemRows}</tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={5} className="border border-slate-300 px-2 py-1 text-right font-semibold">รวมรายการ BOQ ตามปรับลด</td>
+                      <td className="border border-slate-300 px-2 py-1 text-right font-semibold">{formatSatang(reduce.winItemsSat)}</td>
+                    </tr>
+                    {reduce.fixedLines.map((f, i) => (
+                      <tr key={"ff-" + i}>
+                        <td colSpan={5} className="border border-slate-300 px-2 py-1 text-right text-slate-600">{f.label}</td>
+                        <td className="border border-slate-300 px-2 py-1 text-right text-slate-600">{formatSatang(f.satang)}</td>
+                      </tr>
+                    ))}
+                    <tr className="bg-emerald-50">
+                      <td colSpan={5} className="border border-slate-300 px-2 py-1 text-center font-bold">วงเงินตามสัญญา</td>
+                      <td className="border border-slate-300 px-2 py-1 text-right font-bold">{formatSatang(reduce.winningSat)}</td>
+                    </tr>
+                    <tr>
+                      <td colSpan={6} className="border border-slate-300 px-2 py-1 text-right text-xs">( {bahtText(reduce.winningSat)} )</td>
+                    </tr>
+                  </tfoot>
+                </table>
+
+                <div className="mt-10 grid grid-cols-2 gap-6 text-center text-sm">
+                  <div>
+                    <p>ลงชื่อ .......................................................... ผู้ว่าจ้าง</p>
+                    <p className="mt-1">( ……………………………………………… )</p>
+                    <p className="mt-1 text-xs text-slate-500">หน่วยงานเจ้าของโครงการ</p>
+                  </div>
+                  <div>
+                    <p>ลงชื่อ .......................................................... ผู้รับจ้าง</p>
+                    <p className="mt-1 font-medium">( {award?.contractorSigner?.trim() || "……………………………………………" } )</p>
+                    <p className="mt-1 text-xs text-slate-500">{award?.contractor?.trim() || "ผู้รับจ้าง"}</p>
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        );
+      })(),
+    },
   ];
 
   return (
@@ -592,7 +857,7 @@ export default function DocsClient({ projectId }: { projectId: string }) {
 
       <div className="no-print mb-6 flex flex-wrap items-center gap-2">
         <a href={`/projects/${projectId}`} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">← กลับ editor</a>
-        <button onClick={() => window.print()} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800">พิมพ์ทั้งชุด (9 ฉบับ)</button>
+        <button onClick={() => window.print()} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800">พิมพ์ทั้งชุด (10 ฉบับ)</button>
         {unsplitNames.length > 0 && (
           <span className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
             ⚠ {unsplitNames.length} รายการยังไม่แยก ก./ข. — ดูเตือนในฉบับที่ 3 และ 4
