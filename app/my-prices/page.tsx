@@ -14,7 +14,7 @@ export default function MyPricesPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setEntries(loadPricelist());
+    loadPricelist().then(setEntries);
     setLoaded(true);
   }, []);
 
@@ -47,9 +47,9 @@ export default function MyPricesPage() {
   }
 
   function importJson(file: File) {
-    file.text().then((text) => {
-      const res = importPricelist(text);
-      setEntries(loadPricelist());
+    file.text().then(async (text) => {
+      const res = await importPricelist(text);
+      setEntries(await loadPricelist());
       setMsg(res.ok ? `นำเข้าสำเร็จ — เพิ่ม ${res.added} รายการ, อัปเดต ${res.updated} รายการ` : `นำเข้าไม่สำเร็จ: ${res.error}`);
     });
   }
@@ -71,7 +71,7 @@ export default function MyPricesPage() {
         </div>
         <div className="no-print flex flex-wrap gap-2">
           <a href="/projects" className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">กลับหน้าโครงการ</a>
-          <button onClick={downloadPricelistJson} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">ส่งออก JSON</button>
+          <button onClick={() => void downloadPricelistJson()} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">ส่งออก JSON</button>
           <button onClick={() => fileRef.current?.click()} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">นำเข้า JSON</button>
           <input ref={fileRef} type="file" accept="application/json" className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) importJson(f); e.target.value = ""; }} />
