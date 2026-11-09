@@ -10,7 +10,6 @@
 // ดึง xlsx (ซึ่งอาศัย Node APIs) เข้า server bundle ของหน้า editor
 
 import type { Ruleset } from "./ruleset";
-import type { WorkSheet } from "xlsx";
 import type { BoqItem, BoqProject } from "./boq";
 import { itemTotal, partLabel, proposalSummary, sectionTotals, sourceLabel } from "./boq";
 import { computeGovBOQ } from "./calc/compute";
@@ -86,7 +85,7 @@ async function xlsxModule(): Promise<XlsxModule> {
   return _xlsx;
 }
 
-function fmtCells(XL: XlsxModule, ws: WorkSheet, colLetter: string, startRow: number, fmt: string): void {
+function fmtCells(XL: XlsxModule, ws: any, colLetter: string, startRow: number, fmt: string): void {
   for (let r = startRow; ; r++) {
     const addr = `${colLetter}${r}`;
     const cell = ws[addr];
@@ -95,7 +94,7 @@ function fmtCells(XL: XlsxModule, ws: WorkSheet, colLetter: string, startRow: nu
   }
 }
 
-function buildBoqSheet(XL: XlsxModule, project: BoqProject): WorkSheet {
+function buildBoqSheet(XL: XlsxModule, project: BoqProject): any {
   const aoa: (string | number)[][] = [
     [project.name],
     [project.address || ""],
@@ -150,7 +149,7 @@ function projectTotalBaht(project: BoqProject): number {
   return num2(project.items.reduce((a, it) => a + itemTotal(it), 0));
 }
 
-function buildSectionSummarySheet(XL: XlsxModule, project: BoqProject): WorkSheet {
+function buildSectionSummarySheet(XL: XlsxModule, project: BoqProject): any {
   const aoa: (string | number)[][] = [["หมวดงาน", "รวมเงิน (บาท)"]];
   for (const s of sectionTotals(project)) aoa.push([s.section, num2(s.total)]);
   aoa.push(["รวมทั้งสิ้น", projectTotalBaht(project)]);
@@ -160,7 +159,7 @@ function buildSectionSummarySheet(XL: XlsxModule, project: BoqProject): WorkShee
   return ws;
 }
 
-function buildSummarySheet(XL: XlsxModule, project: BoqProject, ruleset: Ruleset | null | undefined): { sheet: WorkSheet; mode: "gov" | "private" | "none" } {
+function buildSummarySheet(XL: XlsxModule, project: BoqProject, ruleset: Ruleset | null | undefined): { sheet: any; mode: "gov" | "private" | "none" } {
   const mode = project.mode ?? "gov";
   if (mode === "private") {
     const p = proposalSummary(project.items, project.factors);
