@@ -7,7 +7,7 @@ import { loadRulesets, Ruleset } from "@/lib/ruleset";
 import { computeGovBOQSafe } from "@/lib/calc/compute";
 import { formatSatang, mulQty, satangToBaht, type Satang } from "@/lib/calc/money";
 import { bahtText } from "@/lib/bahttext";
-import { sourceLabel } from "@/lib/export";
+import { partLabel, sourceLabel } from "@/lib/boq";
 
 // ชุดเอกสารงานราชการ 9 ฉบับ (F3.6) / ใบเสนอราคาเอกชน (โหมด private)
 // ทุกฉบับพิมพ์ A4 ขาวดำ ขึ้นหน้าใหม่เอง (.doc-sheet) มีช่องลงนาม ผู้จัดทำ/ตรวจสอบ/อนุมัติ
