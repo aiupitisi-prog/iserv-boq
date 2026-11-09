@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { BoqProject, BOQ_TYPES, newId, SAMPLES, thb, projectTotal } from "@/lib/boq";
-import { loadProjects, saveProjects } from "@/lib/storage";
+import { loadProjects, saveProjects, storageUsagePercent } from "@/lib/storage";
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<BoqProject[]>([]);
@@ -14,9 +14,11 @@ export default function ProjectsPage() {
   const [mode, setMode] = useState<"gov" | "private">("gov");
   const [boqType, setBoqType] = useState<BoqProject["boqType"]>("ปร.1");
   const fileRef = useRef<HTMLInputElement>(null);
+  const [usagePct, setUsagePct] = useState<number | null>(null); // R5 — เตือนเมื่อใกล้เต็มโควตา
 
   useEffect(() => {
-    setProjects(loadProjects());
+    loadProjects().then(setProjects); // IndexedDB หลัก + ย้ายข้อมูลจาก localStorage โอกาสแรก (F4.4)
+    storageUsagePercent().then(setUsagePct);
     // รับ ?mode=private จากลิงก์ "เริ่ม BOQ เอกชน" (อ่านผ่าน location ตรง ๆ กันปัญหา Suspense)
     if (typeof window !== "undefined" && window.location.search.includes("mode=private")) {
       setMode("private");
@@ -124,7 +126,12 @@ export default function ProjectsPage() {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-blue-950">โครงการราคากลาง</h1>
-          <p className="text-sm text-slate-600">BOQ งานก่อสร้าง · เก็บข้อมูลในอุปกรณ์เป็นค่าเริ่มต้น</p>
+          <p className="text-sm text-slate-600">BOQ งานก่อสร้าง · เก็บข้อมูลในอุปกรณ์ (IndexedDB — โควตาใหญ่กว่า localStorage)</p>
+          {usagePct !== null && usagePct >= 80 && (
+            <p className="mt-1 text-xs text-amber-700">
+              ⚠️ พื้นที่จัดเก็บใช้ไปแล้ว {usagePct}% ของโควตาเบราว์เซอร์ — แนะนำส่งออก JSON สำรองหรือลบโครงการที่ไม่ใช้
+            </p>
+          )}
         </div>
         <div className="no-print flex flex-wrap gap-2">
           <button onClick={() => setCreating((v) => !v)} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800">
