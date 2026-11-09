@@ -12,35 +12,11 @@
 import type { Ruleset } from "./ruleset";
 import type { WorkSheet } from "xlsx";
 import type { BoqItem, BoqProject } from "./boq";
-import { itemTotal, proposalSummary, sectionTotals } from "./boq";
+import { itemTotal, partLabel, proposalSummary, sectionTotals, sourceLabel } from "./boq";
 import { computeGovBOQ } from "./calc/compute";
 import { satangToBaht } from "./calc/money";
 
-const THAI_MONTHS = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
-
 type XlsxModule = typeof import("xlsx");
-
-// ---------- คำอธิบายที่มาราคา (PriceEvidence — F1.6) ----------
-
-export function sourceLabel(it: BoqItem): string {
-  const s = it.source;
-  if (!s) return "ป้อนเอง / ไม่ระบุ";
-  if (s.kind === "tpso") {
-    return `ราคา สนค. ${s.provName} ปี ${s.year}${s.month ? " เดือน " + THAI_MONTHS[s.month] : ""} (รหัส ${s.code})`;
-  }
-  return `คลังราคาของฉัน (${s.category})${s.note ? " — " + s.note : ""}`;
-}
-
-function sourcePickedAt(it: BoqItem): string {
-  const s = it.source;
-  if (!s) return "";
-  const d = new Date(s.pickedAt);
-  return isNaN(d.getTime()) ? s.pickedAt : d.toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" });
-}
-
-function partLabel(it: BoqItem): string {
-  return it.part === "equipment" ? "ครุภัณฑ์" : "งานก่อสร้าง";
-}
 
 // ---------- CSV ----------
 
@@ -83,8 +59,6 @@ export function toCsvRows(project: BoqProject): (string | number)[][] {
       partLabel(it),
       num2(itemTotal(it)),
       sourceLabel(it),
-      it.source ? num2(it.source.priceAtPick) : "",
-      sourcePickedAt(it),
       it.note ?? "",
     ]);
   }
