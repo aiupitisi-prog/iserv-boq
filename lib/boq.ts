@@ -94,6 +94,10 @@ export type BoqItem = {
   qty: number; // ปริมาณ
   price: number; // ราคาต่อหน่วย (บาท)
   source?: PriceSource; // ที่มาราคา (optional — โปรเจกต์เก่าที่ไม่มีฟิลด์นี้ยังใช้ได้ปกติ)
+  part?: "construction" | "equipment"; // ส่วนของรายการ — ครุภัณฑ์แยกจากฐาน Factor F (กฎเหล็ก)
+  matPrice?: number; // ราคาวัสดุ/หน่วย (แยกส่วน ก.) — ใส่คู่กับ laborPrice
+  laborPrice?: number; // ราคาแรงงาน/หน่วย (แยกส่วน ข.)
+  note?: string; // เหตุผลกำกับ เช่น ที่มาค่าแรงแบบ fallback — แสดงในเอกสารพิมพ์
 };
 
 export type BoqProject = {
