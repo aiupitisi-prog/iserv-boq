@@ -1,4 +1,6 @@
 {
   "version": 2,
-  "builds": [{ "src": "package.json", "use": "@vercel/nextjs-build" }]
+  "crons": [
+    { "path": "/api/prices/refresh?prov=10&year=2569", "schedule": "0 2 * * *" }
+  ]
 }
