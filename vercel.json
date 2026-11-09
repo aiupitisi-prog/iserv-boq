@@ -1,6 +1,0 @@
-{
-  "version": 2,
-  "crons": [
-    { "path": "/api/prices/refresh?prov=10&year=2569", "schedule": "0 2 * * *" }
-  ]
-}
