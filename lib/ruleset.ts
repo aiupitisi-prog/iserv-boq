@@ -33,6 +33,9 @@ export type Ruleset = {
   checksum: string; // SHA-256 (hex) ของเนื้อหาตาราง — คำนวณด้วย computeChecksum
   factorF?: FactorFTable;
   labor?: { minPct: number; maxPct: number }; // ช่วง % ค่าแรง เช่น 30–37 — จากเอกสารทางการเท่านั้น
+  contingencyPct?: number; // % เงินเผื่อจำเป็น — จากเอกสารทางการเท่านั้น (ไม่มีค่า default ในโค้ด)
+  swcPct?: number; // % ค่าดำเนินงาน (งานก่อสร้าง) — จากเอกสารทางการเท่านั้น
+  durableHandlingPct?: number; // % ค่าดำเนินงานครุภัณฑ์ (แยกจากฐาน Factor F) — จากเอกสารทางการเท่านั้น
   notices?: string[]; // หมายเหตุ/เงื่อนไขจากประกาศ
   supersededBy?: string; // ruleset id ที่มาแทนที่ (ถ้าถูกแทนแล้ว)
   createdAt: string;
@@ -93,4 +96,24 @@ export function validateFactorFTable(t: FactorFTable): string | null {
 export function rulesetStatus(rs: Ruleset | undefined): "ok" | "superseded" | "missing" {
   if (!rs) return "missing";
   return rs.supersededBy ? "superseded" : "ok";
+}
+
+// checksum ของ "เนื้อหาตัวเลขกฎหมาย" ทั้งชุด — ใช้ตรวจ import/export ให้ตรงกัน และตรวจพบการแก้ไฟล์ภายหลัง
+// (null = ไม่มีข้อมูลส่วนนั้น — canonical ทุกรูปแบบเดียวกันข้ามเครื่อง)
+export async function rulesetChecksum(
+  rs: {
+    factorF?: FactorFTable | null;
+    labor?: { minPct: number; maxPct: number } | null;
+    contingencyPct?: number | null;
+    swcPct?: number | null;
+    durableHandlingPct?: number | null;
+  },
+): Promise<string> {
+  return computeChecksum({
+    factorF: rs.factorF ?? null,
+    labor: rs.labor ?? null,
+    contingencyPct: rs.contingencyPct ?? null,
+    swcPct: rs.swcPct ?? null,
+    durableHandlingPct: rs.durableHandlingPct ?? null,
+  });
 }
