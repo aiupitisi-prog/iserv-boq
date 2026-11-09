@@ -5,15 +5,20 @@
 //
 // ตัวเงินในไฟล์ = ตัวเลขบาท (2 ตำแหน่ง) เพื่อให้ผู้ใช้ตรวจ/คำนวณต่อใน Excel ได้
 // การคำนวณในระบบยังเป็นสตางค์ integer ทั้งหมด (lib/calc) — ไฟล์นี้เป็นเอาต์พุตแสดงผลเท่านั้น
+//
+// xlsx import แบบ dynamic (เฉพาะตอนกดส่งออกจริงใน browser) กัน Server-Side bundler
+// ดึง xlsx (ซึ่งอาศัย Node APIs) เข้า server bundle ของหน้า editor
 
-import * as XLSX from "xlsx";
+import type { Ruleset } from "./ruleset";
+import type { WorkSheet } from "xlsx";
 import type { BoqItem, BoqProject } from "./boq";
 import { itemTotal, proposalSummary, sectionTotals } from "./boq";
-import type { Ruleset } from "./ruleset";
 import { computeGovBOQ } from "./calc/compute";
 import { satangToBaht } from "./calc/money";
 
 const THAI_MONTHS = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+
+type XlsxModule = typeof import("xlsx");
 
 // ---------- คำอธิบายที่มาราคา (PriceEvidence — F1.6) ----------
 
@@ -39,7 +44,6 @@ function partLabel(it: BoqItem): string {
 
 // ---------- CSV ----------
 
-// escape ตาม RFC 4180 — ช่องที่มี , " หรือขึ้นบรรทัดใหม่ ต้องครอบด้วย " และเพิ่ม " เป็นซ้อน
 function csvField(v: string | number): string {
   const s = String(v);
   return /[",\r\n]/.test(s) ? '"' + s.replaceAll('"', '""') + '"' : s;
@@ -62,7 +66,6 @@ const CSV_HEADERS = [
   "หมายเหตุ",
 ];
 
-// ตารางแบบแถวเรียบ (flat) — เหมาะกับ CSV เพื่อนำไปประมวลผลต่อ
 export function toCsvRows(project: BoqProject): (string | number)[][] {
   const rows: (string | number)[][] = [CSV_HEADERS];
   let no = 0;
@@ -92,18 +95,24 @@ function num2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-// UTF-8 BOM + CRLF (Excel ไทยอ่านถูกต้อง)
 export function toCsv(project: BoqProject): string {
   const lines = toCsvRows(project).map((r) => r.map(csvField).join(","));
   return "\uFEFF" + lines.join("\r\n") + "\r\n";
 }
 
-// ---------- xlsx (SheetJS) ----------
+// ---------- xlsx (SheetJS — dynamic import, browser เท่านั้น) ----------
 
 const MONEY_FMT = "#,##0.00";
 const QTY_FMT = "#,##0.####";
 
-function fmtCells(ws: XLSX.WorkSheet, colLetter: string, startRow: number, fmt: string): void {
+let _xlsx: Promise<XlsxModule> | null = null;
+
+async function xlsxModule(): Promise<XlsxModule> {
+  if (!_xlsx) _xlsx = import("xlsx");
+  return _xlsx;
+}
+
+function fmtCells(XL: XlsxModule, ws: WorkSheet, colLetter: string, startRow: number, fmt: string): void {
   for (let r = startRow; ; r++) {
     const addr = `${colLetter}${r}`;
     const cell = ws[addr];
@@ -112,7 +121,7 @@ function fmtCells(ws: XLSX.WorkSheet, colLetter: string, startRow: number, fmt: 
   }
 }
 
-function buildBoqSheet(project: BoqProject): XLSX.WorkSheet {
+function buildBoqSheet(XL: XlsxModule, project: BoqProject): WorkSheet {
   const aoa: (string | number)[][] = [
     [project.name],
     [project.address || ""],
@@ -146,15 +155,15 @@ function buildBoqSheet(project: BoqProject): XLSX.WorkSheet {
     aoa.push([]);
   }
   aoa.push(["รวมทั้งสิ้น", "", "", "", "", "", "", num2(projectTotalBaht(project))]);
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const ws = XL.utils.aoa_to_sheet(aoa);
   ws["!cols"] = [
     { wch: 6 }, { wch: 44 }, { wch: 10 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 40 }, { wch: 24 },
   ];
-  fmtCells(ws, "D", 6, QTY_FMT);
-  fmtCells(ws, "E", 6, MONEY_FMT);
-  fmtCells(ws, "F", 6, MONEY_FMT);
-  fmtCells(ws, "G", 6, MONEY_FMT);
-  fmtCells(ws, "H", 6, MONEY_FMT);
+  fmtCells(XL, ws, "D", 6, QTY_FMT);
+  fmtCells(XL, ws, "E", 6, MONEY_FMT);
+  fmtCells(XL, ws, "F", 6, MONEY_FMT);
+  fmtCells(XL, ws, "G", 6, MONEY_FMT);
+  fmtCells(XL, ws, "H", 6, MONEY_FMT);
   return ws;
 }
 
@@ -167,18 +176,17 @@ function projectTotalBaht(project: BoqProject): number {
   return num2(project.items.reduce((a, it) => a + itemTotal(it), 0));
 }
 
-function buildSectionSummarySheet(project: BoqProject): XLSX.WorkSheet {
+function buildSectionSummarySheet(XL: XlsxModule, project: BoqProject): WorkSheet {
   const aoa: (string | number)[][] = [["หมวดงาน", "รวมเงิน (บาท)"]];
   for (const s of sectionTotals(project)) aoa.push([s.section, num2(s.total)]);
   aoa.push(["รวมทั้งสิ้น", projectTotalBaht(project)]);
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const ws = XL.utils.aoa_to_sheet(aoa);
   ws["!cols"] = [{ wch: 36 }, { wch: 18 }];
-  fmtCells(ws, "B", 2, MONEY_FMT);
+  fmtCells(XL, ws, "B", 2, MONEY_FMT);
   return ws;
 }
 
-// สรุปราคากลาง (gov — จากเครื่องยนต์ lib/calc พร้อม trace) หรือสรุปราคาเสนอ (private — ติดป้ายชัด)
-function buildSummarySheet(project: BoqProject, ruleset: Ruleset | null | undefined): { sheet: XLSX.WorkSheet; mode: "gov" | "private" | "none" } {
+function buildSummarySheet(XL: XlsxModule, project: BoqProject, ruleset: Ruleset | null | undefined): { sheet: WorkSheet; mode: "gov" | "private" | "none" } {
   const mode = project.mode ?? "gov";
   if (mode === "private") {
     const p = proposalSummary(project.items, project.factors);
@@ -191,9 +199,9 @@ function buildSummarySheet(project: BoqProject, ruleset: Ruleset | null | undefi
     ];
     for (const l of p.lines) aoa.push([l.label, l.formula, num2(l.amount)]);
     aoa.push(["ราคาเสนอรวม (รวม VAT)", "", num2(p.proposalTotal)]);
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const ws = XL.utils.aoa_to_sheet(aoa);
     ws["!cols"] = [{ wch: 34 }, { wch: 34 }, { wch: 18 }];
-    fmtCells(ws, "C", 5, MONEY_FMT);
+    fmtCells(XL, ws, "C", 5, MONEY_FMT);
     return { sheet: ws, mode: "private" };
   }
 
@@ -213,21 +221,21 @@ function buildSummarySheet(project: BoqProject, ruleset: Ruleset | null | undefi
     ok = false;
     aoa.push([`คำนวณไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`]);
   }
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const ws = XL.utils.aoa_to_sheet(aoa);
   ws["!cols"] = [{ wch: 52 }, { wch: 40 }, { wch: 18 }, { wch: 60 }];
-  if (ok) fmtCells(ws, "C", 5, MONEY_FMT);
+  if (ok) fmtCells(XL, ws, "C", 5, MONEY_FMT);
   return { sheet: ws, mode: "gov" };
 }
 
-// Uint8Array ของไฟล์ xlsx — ผู้เรียกเอาไปทำ Blob เอง (เขียนทดสอบใน node ได้)
-export function toXlsxArray(project: BoqProject, ruleset: Ruleset | null | undefined): Uint8Array {
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, buildBoqSheet(project), "BOQ");
-  XLSX.utils.book_append_sheet(wb, buildSectionSummarySheet(project), "สรุปหมวดงาน");
-  const { sheet } = buildSummarySheet(project, ruleset);
-  XLSX.utils.book_append_sheet(wb, sheet, (project.mode ?? "gov") === "private" ? "สรุปราคาเสนอ" : "สรุปราคากลาง");
-  // SheetJS 0.18 คืน ArrayBuffer — normalize เป็น Uint8Array ให้เสถียรทั้ง node/browser
-  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as unknown;
+// Uint8Array ของไฟล์ xlsx — ผู้เรียกเอาไปทำ Blob เอง (dynamic import xlsx เฉพาะตอนนี้)
+export async function toXlsxArray(project: BoqProject, ruleset: Ruleset | null | undefined): Promise<Uint8Array> {
+  const XL = await xlsxModule();
+  const wb = XL.utils.book_new();
+  XL.utils.book_append_sheet(wb, buildBoqSheet(XL, project), "BOQ");
+  XL.utils.book_append_sheet(wb, buildSectionSummarySheet(XL, project), "สรุปหมวดงาน");
+  const { sheet } = buildSummarySheet(XL, project, ruleset);
+  XL.utils.book_append_sheet(wb, sheet, (project.mode ?? "gov") === "private" ? "สรุปราคาเสนอ" : "สรุปราคากลาง");
+  const out = XL.write(wb, { bookType: "xlsx", type: "array" }) as unknown;
   return out instanceof Uint8Array ? out : new Uint8Array(out as ArrayBuffer);
 }
 
