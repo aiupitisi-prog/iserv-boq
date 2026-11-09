@@ -139,6 +139,9 @@ export default function ProjectsPage() {
           <button onClick={() => fileRef.current?.click()} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">
             นำเข้า JSON
           </button>
+          <a href="/rulesets" className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50" title="ที่เก็บตาราง Factor F และอัตรา % จากเอกสารทางการ (เครื่องยนต์ราคากลางใช้ที่นี่)">
+            ชุดกฎราคากลาง
+          </a>
           <input ref={fileRef} type="file" accept="application/json" className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) importJson(f); e.target.value = ""; }} />
         </div>
