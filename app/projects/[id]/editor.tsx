@@ -242,14 +242,15 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
   }
 
   // ส่งออก CSV / Excel (F3.4) — สร้างไฟล์จาก lib/export (CSV มี BOM, xlsx ผ่าน SheetJS)
-  function exportCsv() {
+  async function exportCsv() {
     if (!project) return;
     downloadBlob(toCsv(project), EXPORT_MIME.csv, safeFilename(project, "csv"));
   }
-  function exportXlsx() {
+  async function exportXlsx() {
     if (!project) return;
     const rs = rulesets.find((r) => r.id === project.rulesetId) ?? null;
-    downloadBlob(toXlsxArray(project, rs), EXPORT_MIME.xlsx, safeFilename(project, "xlsx"));
+    const bytes = await toXlsxArray(project, rs);
+    downloadBlob(bytes, EXPORT_MIME.xlsx, safeFilename(project, "xlsx"));
   }
 
   function downloadJson() {
