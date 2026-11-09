@@ -1,88 +1,90 @@
-// ที่เก็บโปรเจกต์บน IndexedDB (F4.4) — กันโควตา localStorage (~5MB) +
-// เก็บได้ต่อเนื่องแม้แท็บปิด (ใช้ร่วมกับ PWA/service worker สำหรับ offline)
-// API เดียวกับ lib/storage.ts แต่เป็น async — เปลี่ยนผู้เรียกให้ await ได้ทีหลัง
-import type { BoqProject } from "./boq";
-import { newId } from "./boq";
+// IndexedDB helpers สามัญ (F4.4) — ทุกส่วนของแอปใช้ DB เดียวกัน
+// DB: iserv-boq-db (version 2) · stores: "projects", "pricelist"
+// หลักการ: ทุกฟังก์ชัน **ไม่ throw** — ล้มเหลวคืน null/false เพื่อให้ผู้เรียก fallback ไป localStorage ได้เลย
 
-const DB_NAME = "iserv-boq-db";
-const DB_VERSION = 1;
-const STORE_NAME = "projects";
+export const IDB_NAME = "iserv-boq-db";
+export const IDB_VERSION = 2;
+export const STORE_PROJECTS = "projects";
+export const STORE_PRICELIST = "pricelist";
 
-type Db = IDBDatabase;
+let dbPromise: Promise<IDBDatabase | null> | null = null;
 
-let dbPromise: Promise<Db> | null = null;
-
-function openDb(): Promise<Db> {
-  if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: "id" });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-    req.onblocked = () => {
-      // กรณีแท็บอื่นเปิด DB ค้างอยู่ — เตือนให้ปิดแท็บอื่นก่อนใช้งาน
-    };
-  });
+function openDb(): Promise<IDBDatabase | null> {
+  if (typeof indexedDB === "undefined" || indexedDB === null) return Promise.resolve(null);
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        for (const name of [STORE_PROJECTS, STORE_PRICELIST]) {
+          if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: "id" });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+      req.onblocked = () => {
+        // แท็บอื่นเปิด DB เดิมอยู่ (เวอร์ชันเก่า) — จะกลายเป็น fallback ตามผู้เรียก
+        reject(req.error ?? new Error("IndexedDB blocked by another tab"));
+      };
+    });
+  }
   return dbPromise;
 }
 
-function withStore<T>(mode: "readonly" | "readwrite", work: (store: IDBObjectStore) => T | Promise<T>): Promise<T> {
-  return openDb().then((db) => {
-    return new Promise<T>((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, mode);
-      const store = tx.objectStore(STORE_NAME);
-      Promise.resolve(work(store)).then((result) => {
-        tx.oncomplete = () => resolve(result);
-      }, (e) => {
-        tx.abort();
-        reject(e);
+function withStore<T>(
+  storeName: string,
+  mode: "readonly" | "readwrite",
+  work: (store: IDBObjectStore) => IDBRequest,
+  fallback: T,
+): Promise<T> {
+  return openDb()
+    .then((db) => {
+      if (!db) return fallback;
+      return new Promise<T>((resolve, reject) => {
+        const tx = db.transaction(storeName, mode);
+        const req = work(tx.objectStore(storeName));
+        req.onsuccess = () => resolve(req.result as T);
+        req.onerror = () => reject(req.error);
       });
-      tx.onerror = () => reject(tx.error);
-    });
-  });
+    })
+    .catch(() => fallback);
 }
 
-export async function loadProjectsIdb(): Promise<BoqProject[]> {
-  return withStore("readonly", (store) => {
-    return new Promise<BoqProject[]>((resolve, reject) => {
-      const req = store.getAll();
-      req.onsuccess = () => resolve((req.result as BoqProject[]) ?? []);
-      req.onerror = () => reject(req.error);
-    });
-  });
+// อ่านทุกระเบียบ; คืน **null** เมื่อ IDB ใช้ไม่ได้ (แยกจาก "อ่านได้แต่ว่าง" = [])
+export function idbGetAll<T>(storeName: string): Promise<T[] | null> {
+  return withStore<unknown[]>(storeName, "readonly", (store) => store.getAll(), null as unknown as unknown[]).then(
+    (rows) => (rows === null ? null : ((rows as T[]) ?? [])),
+  );
 }
 
-export async function saveProjectsIdb(list: BoqProject[]): Promise<void> {
-  return withStore("readwrite", (store) => {
-    // เคลียร์แล้วเขียนใหม่ (ง่ายและถูกต้องสำหรับขนาดโปรเจกต์ปกติ)
-    const clearReq = store.clear();
-    clearReq.onsuccess = () => {
-      for (const p of list) store.put(p);
-    };
-    clearReq.onerror = () => {
-      throw clearReq.error;
-    };
-    return undefined;
-  });
+// เคลียร์แล้วเขียนทับทั้ง store — true เมื่อสำเร็จ
+export function idbPutAll<T extends { id: string }>(storeName: string, rows: T[]): Promise<boolean> {
+  return openDb()
+    .then((db) => {
+      if (!db) return false;
+      return new Promise<boolean>((resolve, reject) => {
+        const tx = db.transaction(storeName, "readwrite");
+        const store = tx.objectStore(storeName);
+        store.clear();
+        for (const r of rows) store.put(r);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      });
+    })
+    .catch(() => false);
 }
 
-export function emptyProjectIdb(): BoqProject {
-  return {
-    id: newId(),
-    name: "โครงการใหม่",
-    address: "",
-    boqType: "ปร.1",
-    createdAt: new Date().toISOString(),
-    items: [],
-  };
-}
-
-// ตรวจว่า IndexedDB ใช้งานได้บนเบราว์เซอร์นี้หรือไม่
-export function idbAvailable(): boolean {
-  return typeof indexedDB !== "undefined";
+// upsert ระเบียบเดียว — true เมื่อสำเร็จ (ใช้บ่อยที่ cadence สูง เช่น editor แก้แถว)
+export function idbPutOne<T extends { id: string }>(storeName: string, row: T): Promise<boolean> {
+  return openDb()
+    .then((db) => {
+      if (!db) return false;
+      return new Promise<boolean>((resolve, reject) => {
+        const tx = db.transaction(storeName, "readwrite");
+        tx.objectStore(storeName).put(row);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      });
+    })
+    .catch(() => false);
 }
