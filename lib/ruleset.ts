@@ -59,11 +59,23 @@ export function saveRulesets(list: Ruleset[]): void {
   localStorage.setItem(KEY, JSON.stringify(list));
 }
 
-// checksum ของเนื้อหาตาราง (SHA-256 hex) — ผูกกับข้อมูล ไม่ผูกกับ id/วันเวลา
+// checksum ของเนื้อหาตาราง (hex) — ผูกกับข้อมูล ไม่ผูกกับ id/วันเวลา
+// ใช้ pure-JS hash (FNV-1a) ไม่พึ่ง Web Crypto / Node crypto — รันได้ทุกที่ (browser/server/edge)
+function fnv1aHex(s: string): string {
+  let h1 = 2166136261 >>> 0;
+  let h2 = 14695981039970662767 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    h1 = ((h1 ^ c) * 16777619) >>> 0;
+    h2 = Math.imul(h2 ^ c, 1099511628211);
+  }
+  return ((h1 >>> 0).toString(16).padStart(8, "0") + (h2 >>> 0).toString(16).padStart(8, "0"));
+}
+
+// checksum ของเนื้อหาตาราง (hex) — ผูกกับข้อมูล ไม่ผูกกับ id/วันเวลา
 export async function computeChecksum(data: unknown): Promise<string> {
   const canonical = stableStringify(data);
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
-  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return fnv1aHex(canonical);
 }
 
 // stable stringify — เรียง key เพื่อให้ checksum นิ่งข้ามเครื่อง/ข้ามเวลา
