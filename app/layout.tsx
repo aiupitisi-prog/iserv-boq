@@ -12,6 +12,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="th">
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+      </head>
       <body className="min-h-screen flex flex-col bg-slate-50 text-slate-900 antialiased">
         <header className="border-b border-slate-200 bg-white">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
@@ -44,6 +47,20 @@ export default function RootLayout({
             </span>
           </div>
         </footer>
+
+        {/* Register service worker สำหรับ PWA offline (F4.4) */}
+        <script
+          id="sw-register"
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/sw.js', { scope: '/' })
+                  .then(() => console.log('SW registered'))
+                  .catch((e) => console.log('SW registration failed', e));
+              }
+            `,
+          }}
+        />
       </body>
     </html>
   );
