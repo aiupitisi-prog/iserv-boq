@@ -1,9 +1,15 @@
 import { tpsoMaster, tpsoPrices } from "@/lib/tpso";
+import {
+  readMasterSnapshot,
+  readSnapshot,
+  snapshotAgeHours,
+} from "@/lib/snapshot";
 
 export const metadata = {
   title: "คลังราคา — อ้างอิงราคาวัสดุก่อสร้าง สนค. (TPSO) | ระบบ BOQ งานก่อสร้าง",
 };
 
+// snapshot-first → first load เร็วแม้แคชเย็น; maxDuration กัน TPSO ตอบช้า
 export const maxDuration = 30;
 
 const THAI_MONTHS = [
@@ -27,6 +33,16 @@ function buildQuery(base: Record<string, string>, patch: Record<string, string>)
   return parts.length ? "?" + parts.join("&") : "";
 }
 
+function thDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("th-TH", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default async function PricesPage({
   searchParams,
 }: {
@@ -43,15 +59,48 @@ export default async function PricesPage({
   let provinces: { type: string; name: string }[] = [];
   let heads: { code: string; name: string }[] = [];
   let rows: Awaited<ReturnType<typeof tpsoPrices>> = [];
-  let error: string | null = null;
+  let priceFetchedAt: string | null = null;
+  let masterFetchedAt: string | null = null;
+  let usedPriceSnapshot = false;
+  let masterError: string | null = null;
+  let priceError: string | null = null;
 
+  // ---------- master (จังหวัด/หมวด): snapshot-g่อน → สดถ้ายังไม่มี ----------
   try {
-    const master = await tpsoMaster();
-    provinces = master.provinces;
-    heads = master.heads;
-    rows = await tpsoPrices(prov, year);
+    const masterSnap = readMasterSnapshot();
+    if (masterSnap) {
+      provinces = masterSnap.provinces;
+      heads = masterSnap.heads;
+      masterFetchedAt = masterSnap.fetchedAt;
+    } else {
+      const m = await tpsoMaster();
+      provinces = m.provinces;
+      heads = m.heads;
+    }
   } catch (e) {
-    error = e instanceof Error ? e.message : "เชื่อมต่อ สนค. ไม่สำเร็จ";
+    masterError = e instanceof Error ? e.message : "โหลดรายชื่อจังหวัด/หมวดไม่สำเร็จ";
+  }
+
+  // ---------- ราคา: snapshot-g่อน → สดถ้ายังไม่มี ----------
+  try {
+    const snap = readSnapshot(prov, year);
+    if (snap && snap.rows.length > 0) {
+      rows = snap.rows;
+      priceFetchedAt = snap.fetchedAt;
+      usedPriceSnapshot = true;
+    } else {
+      rows = await tpsoPrices(prov, year);
+    }
+  } catch (e) {
+    priceError = e instanceof Error ? e.message : "ดึงข้อมูลราคาจาก สนค. ไม่สำเร็จ";
+    // fallback: ถ้ายังมี snapshot เก่า ใช้ได้แม้จะดึงสดไม่สำเร็จ
+    const snap = readSnapshot(prov, year);
+    if (snap && snap.rows.length > 0) {
+      rows = snap.rows;
+      priceFetchedAt = snap.fetchedAt;
+      usedPriceSnapshot = true;
+      priceError = null;
+    }
   }
 
   const filtered = rows.filter((r) => {
@@ -63,6 +112,9 @@ export default async function PricesPage({
   const safePage = Math.min(page, totalPages);
   const paged = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
   const baseQ = { prov, y: String(year), cat, q };
+
+  const snapshotAge = priceFetchedAt ? snapshotAgeHours(prov, year) : null;
+  const isStale = snapshotAge !== null && snapshotAge > 24;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10">
@@ -85,53 +137,44 @@ export default async function PricesPage({
         ระบบดึงราคาล่าสุดของปีที่เลือกแต่ละรายการ ใช้ประกอบการตั้งราคาต่อหน่วยใน BOQ
       </p>
 
-      {/* ตัวกรอง */}
-      <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
-        <label className="block text-xs text-slate-500">
-          <span className="mb-1 block">จังหวัด / เขต</span>
-          <select name="prov" defaultValue={prov}
-            className="w-48 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800">
-            {provinces.map((p) => (
-              <option key={p.type} value={p.type}>{p.name}</option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-xs text-slate-500">
-          <span className="mb-1 block">ปี (พ.ศ.)</span>
-          <select name="y" defaultValue={String(year)}
-            className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800">
-            {YEARS.map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-xs text-slate-500">
-          <span className="mb-1 block">หมวดวัสดุ</span>
-          <select name="cat" defaultValue={cat}
-            className="w-64 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800">
-            <option value="">ทุกหมวด</option>
-            {heads.map((h) => (
-              <option key={h.code} value={h.code}>{h.code} {h.name}</option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-xs text-slate-500">
-          <span className="mb-1 block">ค้นหารายการ</span>
-          <input name="q" defaultValue={q} placeholder="เช่น คอนกรีต, อิฐ, เหล็ก"
-            className="w-56 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800" />
-        </label>
-        <button type="submit"
-          className="rounded-lg bg-blue-700 px-5 py-2 text-sm font-medium text-white hover:bg-blue-800">
-          ปรับตัวกรอง
-        </button>
-      </form>
-
-      {error ? (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-900">
-          ดึงข้อมูลจาก สนค. ไม่สำเร็จ ({error}) — กรุณาลองใหม่อีกครั้ง
-          หรือตรวจข้อมูลที่ <a className="underline" href="https://index.tpso.go.th/construction-material-prices" target="_blank" rel="noopener noreferrer">index.tpso.go.th ↗</a>
+      {/* แจ้งเตือนเมื่อใช้สแนปชอต (ข้อมูลสำรอง) — F4.2 */}
+      {usedPriceSnapshot && priceFetchedAt && (
+        <div
+          className={`rounded-xl border p-4 text-sm ${
+            isStale
+              ? "border-amber-300 bg-amber-50 text-amber-900"
+              : "border-blue-300 bg-blue-50 text-blue-900"
+          }`}
+        >
+          📸 ใช้ข้อมูลสแนปชอตที่บันทึกเมื่อ {thDate(priceFetchedAt)}
+          {snapshotAge !== null && (
+            <span> (ประมาณ {Math.round(snapshotAge)} ชั่วโมงที่แล้ว)</span>
+          )}
+          {isStale ? (
+            <> — ข้อมูลอายุเกิน 24 ชั่วโมง ควรอัปเดตสแนปชอตก่อนใช้ราคาอ้างอิงจริง</>
+          ) : (
+            <> — ระบบใช้ข้อมูลสำรอง (ข้อมูลอาจไม่ใช่ล่าสุดจาก สนค.)</>
+          )}
         </div>
-      ) : (
+      )}
+
+      {masterError && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-900">
+          โหลดรายชื่อจังหวัด/หมวดไม่สำเร็จ ({masterError}) — อาจใช้ข้อมูลค่าเริ่มต้นหรือลองใหม่อีกครั้ง
+        </div>
+      )}
+
+      {!usedPriceSnapshot && priceError && !masterError && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-900">
+          ดึงข้อมูลจาก สนค. ไม่สำเร็จ ({priceError}) —
+          หรือตรวจข้อมูลที่{" "}
+          <a className="underline" href="https://index.tpso.go.th/construction-material-prices" target="_blank" rel="noopener noreferrer">
+            index.tpso.go.th ↗
+          </a>
+        </div>
+      )}
+
+      {(!usedPriceSnapshot || !priceError) && (
         <>
           {prov === "10" && (
             <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
@@ -199,7 +242,7 @@ export default async function PricesPage({
         </>
       )}
 
-      {/* Disclaimer ถาวร — แสดงเสมอทั้งกรณีดึงข้อมูลจาก สนค. สำเร็จหรือล้มเหลว (กัน pattern เฟส 1 ที่เคย FAIL) */}
+      {/* Disclaimer ถาวร — แสดงเสมอ (กัน pattern เฟส 1 ที่เคย FAIL) */}
       <p className="mt-6 text-xs leading-relaxed text-slate-500">
         ข้อมูลราคาทั้งหมดเผยแพร่โดยสำนักงานนโยบายและแผนการขนส่ง (สนค.) กระทรวงคมนาคม
         ผ่านระบบดัชนีเศรษฐกิจการค้า index.tpso.go.th — ผู้ใช้ราคาควรติดตามประกาศต่อเนื่อง
