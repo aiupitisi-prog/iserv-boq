@@ -123,8 +123,8 @@ function parseCsv(text: string): string[][] {
 }
 
 describe("toXlsxArray", () => {
-  it("อ่านกลับได้ 3 แผ่นงาน + ข้อมูลตรง (gov มีแผ่นสรุปราคากลาง)", () => {
-    const u8 = toXlsxArray(project(), TEST_RULESET as never);
+  it("อ่านกลับได้ 3 แผ่นงาน + ข้อมูลตรง (gov มีแผ่นสรุปราคากลาง)", async () => {
+    const u8 = await toXlsxArray(project(), TEST_RULESET as never);
     const wb = XLSX.read(u8, { type: "array" });
     expect(wb.SheetNames).toEqual(["BOQ", "สรุปหมวดงาน", "สรุปราคากลาง"]);
     const boq = XLSX.utils.sheet_to_json<string[]>(wb.Sheets["BOQ"], { header: 1, defval: "" });
@@ -135,28 +135,28 @@ describe("toXlsxArray", () => {
     expect(flat.some((l) => l.includes("รวมทั้งสิ้น"))).toBe(true);
   });
 
-  it("โหมดเอกชน → แผ่นสรุปราคาเสนอ + ติดป้าย ไม่ใช่ราคากลาง", () => {
+  it("โหมดเอกชน → แผ่นสรุปราคาเสนอ + ติดป้าย ไม่ใช่ราคากลาง", async () => {
     const p = project();
     p.mode = "private";
     p.factors = { contingencyPct: 5, profitPct: 15, swcPct: 3, vatPct: 7 };
-    const u8 = toXlsxArray(p, TEST_RULESET as never);
+    const u8 = await toXlsxArray(p, TEST_RULESET as never);
     const wb = XLSX.read(u8, { type: "array" });
     expect(wb.SheetNames).toEqual(["BOQ", "สรุปหมวดงาน", "สรุปราคาเสนอ"]);
     const lines = XLSX.utils.sheet_to_json<string[]>(wb.Sheets["สรุปราคาเสนอ"], { header: 1, defval: "" }).map((r) => r.join("│"));
     expect(lines.some((l) => l.includes("ไม่ใช่ราคากลาง"))).toBe(true);
   });
 
-  it("ยอดนอกตาราง Factor F → แผ่นสรุปมีข้อความคำนวณไม่สำเร็จ (ไม่ crash)", () => {
+  it("ยอดนอกตาราง Factor F → แผ่นสรุปมีข้อความคำนวณไม่สำเร็จ (ไม่ crash)", async () => {
     const p = project();
     p.items.push({ id: "i4", section: "งานใหม่", name: "งานใหญ่มาก", unit: "บาท", qty: 1, price: 500_000_000 }); // 500 ล้าน — นอกช่วงตารางสมมุติ
-    const u8 = toXlsxArray(p, TEST_RULESET as never);
+    const u8 = await toXlsxArray(p, TEST_RULESET as never);
     const wb = XLSX.read(u8, { type: "array" });
     const lines = XLSX.utils.sheet_to_json<string[]>(wb.Sheets["สรุปราคากลาง"], { header: 1, defval: "" }).map((r) => r.join("│"));
     expect(lines.some((l) => l.includes("คำนวณไม่สำเร็จ"))).toBe(true);
   });
 
-  it("ไฟล์จริงเขียนลงดิสก์แล้วอ่านกลับด้วย Excel-engine ได้ (sanity check โครงสร้าง zip)", () => {
-    const u8 = toXlsxArray(project(), TEST_RULESET as never);
+  it("ไฟล์จริงเขียนลงดิสก์แล้วอ่านกลับด้วย Excel-engine ได้ (sanity check โครงสร้าง zip)", async () => {
+    const u8 = await toXlsxArray(project(), TEST_RULESET as never);
     expect(u8.byteLength).toBeGreaterThan(1000);
     expect(u8[0]).toBe(0x50); // "P" ของ PK zip header
     expect(u8[1]).toBe(0x4b); // "K"
