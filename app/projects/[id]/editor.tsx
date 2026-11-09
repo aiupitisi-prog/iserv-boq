@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { BoqItem, BoqProject, PriceSource, itemTotal, newId, proposalSummary, projectTotal, sectionTotals, thb } from "@/lib/boq";
-import { loadProjects, saveProjects } from "@/lib/storage";
+import { loadProjects, saveProject } from "@/lib/storage";
 import { loadPricelist, PrivatePrice } from "@/lib/pricelist";
 import { loadRulesets, Ruleset, rulesetStatus } from "@/lib/ruleset";
 import { CalcResult, computeGovBOQ, computeGovBOQSafe } from "@/lib/calc/compute";
@@ -71,10 +71,11 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({}); // ยุบกลุ่มหมวดงาน (F3.1)
 
   useEffect(() => {
-    const list = loadProjects();
-    setProject(list.find((p) => p.id === projectId) ?? null);
-    setRulesets(loadRulesets());
-    setLoaded(true);
+    loadProjects().then((list) => {
+      setProject(list.find((p) => p.id === projectId) ?? null);
+      setRulesets(loadRulesets());
+      setLoaded(true);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
@@ -111,10 +112,7 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
 
   function update(next: BoqProject | null) {
     setProject(next);
-    if (next) {
-      const list = loadProjects().map((p) => (p.id === projectId ? next : p));
-      saveProjects(list);
-    }
+    if (next) void saveProject(next); // IndexedDB upsert ระเบียบเดียว (F4.4) — เบากว่าเขียนทั้งรายการ
   }
 
   function patchItem(id: string, patch: Partial<BoqItem>) {
@@ -148,7 +146,7 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
     setPQ("");
     setDebouncedQ("");
     setPErr(null);
-    setMine(loadPricelist()); // คลังส่วนตัวอ่านสดทุกครั้งที่เปิด (แก้ใน /my-prices แล้วเห็นทันที)
+    loadPricelist().then(setMine); // คลังส่วนตัวอ่านสดทุกครั้งที่เปิด (แก้ใน /my-prices แล้วเห็นทันที)
     setPickerOpen(true);
     if (!meta) {
       setMetaErr(null);
