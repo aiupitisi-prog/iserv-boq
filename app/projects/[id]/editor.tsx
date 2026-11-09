@@ -4,6 +4,14 @@ import { useEffect, useState } from "react";
 import { BoqItem, BoqProject, PriceSource, itemTotal, newId, proposalSummary, projectTotal, sectionTotals, thb } from "@/lib/boq";
 import { loadProjects, saveProjects } from "@/lib/storage";
 import { loadPricelist, PrivatePrice } from "@/lib/pricelist";
+import { loadRulesets, Ruleset, rulesetStatus } from "@/lib/ruleset";
+import { CalcResult, computeGovBOQ, computeGovBOQSafe } from "@/lib/calc/compute";
+import { satangToBaht } from "@/lib/calc/money";
+import { downloadBlob, EXPORT_MIME, safeFilename, toCsv, toXlsxArray } from "@/lib/export";
+
+function safeCalc(p: BoqProject, rs: Ruleset | null | undefined): { calc: CalcResult | null; err: string | null } {
+  return computeGovBOQSafe(p, rs);
+}
 
 const THAI_MONTHS = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
 const CURRENT_TH_YEAR = new Date().getFullYear() + 543;
@@ -59,10 +67,13 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
   const [pLoading, setPLoading] = useState(false);
   const [pErr, setPErr] = useState<string | null>(null);
   const [mine, setMine] = useState<PrivatePrice[]>([]); // คลังราคาส่วนตัว (โหลดตอนเปิดแท็บ "ของฉัน")
+  const [rulesets, setRulesets] = useState<Ruleset[]>([]); // ชุดกฎราคากลาง (pin ระดับโปรเจกต์)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({}); // ยุบกลุ่มหมวดงาน (F3.1)
 
   useEffect(() => {
     const list = loadProjects();
     setProject(list.find((p) => p.id === projectId) ?? null);
+    setRulesets(loadRulesets());
     setLoaded(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
@@ -219,6 +230,28 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
     update({ ...project, items: project.items.filter((it) => it.id !== id) });
   }
 
+  // ย้ายลำดับรายการ (F3.1) — สลับกับแถวก่อนหน้า/ถัดไปในลิสต์เดิม
+  function moveItem(id: string, dir: -1 | 1) {
+    if (!project) return;
+    const idx = project.items.findIndex((it) => it.id === id);
+    const to = idx + dir;
+    if (idx < 0 || to < 0 || to >= project.items.length) return;
+    const items = [...project.items];
+    [items[idx], items[to]] = [items[to], items[idx]];
+    update({ ...project, items });
+  }
+
+  // ส่งออก CSV / Excel (F3.4) — สร้างไฟล์จาก lib/export (CSV มี BOM, xlsx ผ่าน SheetJS)
+  function exportCsv() {
+    if (!project) return;
+    downloadBlob(toCsv(project), EXPORT_MIME.csv, safeFilename(project, "csv"));
+  }
+  function exportXlsx() {
+    if (!project) return;
+    const rs = rulesets.find((r) => r.id === project.rulesetId) ?? null;
+    downloadBlob(toXlsxArray(project, rs), EXPORT_MIME.xlsx, safeFilename(project, "xlsx"));
+  }
+
   function downloadJson() {
     if (!project) return;
     const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json" });
@@ -247,6 +280,20 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
   const totals = sectionTotals(project);
   const isPrivate = project.mode === "private";
   const proposal = isPrivate ? proposalSummary(project.items, project.factors) : null;
+  const pinnedRs = rulesets.find((r) => r.id === project.rulesetId);
+  const pinnedStatus = rulesetStatus(pinnedRs);
+  const gov = !isPrivate ? safeCalc(project, pinnedRs) : null; // สรุปราคากลางสดจากเครื่องยนต์ (โหมดราชการ)
+
+  // จับกลุ่มรายการตามหมวดงาน (F3.1) — ตามลำดับที่พบแรก; ยุบ/ขยายได้ (ตอนพิมพ์ขยายเสมอ — CSS)
+  const groups: { section: string; items: { it: BoqItem; index: number }[] }[] = [];
+  project.items.forEach((it, index) => {
+    let g = groups.find((x) => x.section === it.section);
+    if (!g) {
+      g = { section: it.section, items: [] };
+      groups.push(g);
+    }
+    g.items.push({ it, index });
+  });
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
@@ -269,14 +316,56 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
           placeholder="ที่ตั้งงาน"
           className="rounded-lg border border-transparent bg-transparent text-sm text-slate-600 hover:border-slate-300 focus:border-blue-400"
         />
-        <div className="no-print flex gap-2">
+        <div className="no-print flex flex-wrap gap-2">
           <button onClick={openPicker} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800">เลือกจากคลังราคา</button>
           <button onClick={addItem} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700">เพิ่มรายการ</button>
+          <a href={`/projects/${project.id}/docs`} className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900">
+            {isPrivate ? "ใบเสนอราคา (พิมพ์)" : "เอกสาร 9 ฉบับ (พิมพ์)"}
+          </a>
+          <button onClick={exportXlsx} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">ส่งออก Excel</button>
+          <button onClick={exportCsv} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">ส่งออก CSV</button>
           <button onClick={downloadJson} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">ส่งออก JSON</button>
           <button onClick={() => window.print()} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">พิมพ์เอกสาร</button>
           <a href="/projects" className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">กลับ</a>
         </div>
       </div>
+
+      {/* pin ชุดกฎราคากลาง (โหมดราชการ) — เครื่องยนต์ใช้ตารางจากที่นี่เท่านั้น */}
+      {!isPrivate && (
+        <div className="no-print mb-4 rounded-xl border border-slate-200 bg-white p-4 text-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="font-medium text-blue-950">ชุดกฎราคากลางที่ใช้ (pin):</span>
+            <select
+              value={project.rulesetId ?? ""}
+              onChange={(e) => update({ ...project, rulesetId: e.target.value || undefined })}
+              className="min-w-64 rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-800"
+            >
+              <option value="">— ไม่ pin (คำนวณเฉพาะต้นทุน) —</option>
+              {rulesets.map((rs) => (
+                <option key={rs.id} value={rs.id}>{rs.name}{rs.supersededBy ? " · ถูกแทนที่แล้ว" : ""}</option>
+              ))}
+            </select>
+            <a href="/rulesets" className="text-blue-700 underline">จัดการชุดกฎ →</a>
+          </div>
+          {pinnedRs && pinnedStatus === "ok" && (
+            <p className="mt-2 text-xs text-slate-500">
+              ที่มา: {pinnedRs.sourceDoc} · มีผล {pinnedRs.effectiveFrom} · checksum {pinnedRs.checksum.slice(0, 8)}…
+            </p>
+          )}
+          {pinnedStatus === "superseded" && pinnedRs && (
+            <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              ⚠ ชุดกฎนี้ถูกประกาศฉบับใหม่แทนที่แล้ว — โปรเจกต์ยัง pin อยู่กับฉบับเก่า ตรวจสอบและเปลี่ยนที่{" "}
+              <a href="/rulesets" className="underline">ชุดกฎราคากลาง</a>
+            </p>
+          )}
+          {pinnedStatus === "missing" && (
+            <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              ⚠ ชุดกฎที่ pin ไว้ถูกลบออกจากอุปกรณ์นี้แล้ว — เลือกชุดกฎใหม่หรือนำเข้าอีกครั้งที่{" "}
+              <a href="/rulesets" className="underline">ชุดกฎราคากลาง</a>
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <table className="w-full text-sm">
@@ -286,85 +375,133 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
               <th className="px-3 py-3 font-medium">หน่วย</th>
               <th className="w-28 px-3 py-3 text-right font-medium">ปริมาณ</th>
               <th className="w-32 px-3 py-3 text-right font-medium">ราคา/หน่วย</th>
+              <th className="no-print w-44 px-3 py-3 font-medium" title="แยกราคาเป็น ก. ค่าวัสดุ / ข. ค่าแรง (บาท/หน่วย) — ใส่คู่กัน ผลรวมต้องเท่าราคา/หน่วย">วัสดุ / แรงงาน</th>
               <th className="w-32 px-3 py-3 text-right font-medium">รวมเงิน</th>
+              <th className="no-print px-2 py-3 font-medium" title="ครุภัณฑ์ = แยกออกจากฐานคำนวณ Factor F">ส่วน</th>
               <th className="no-print w-10 px-2 py-3"></th>
             </tr>
           </thead>
-          <tbody>
-            {project.items.map((it) => {
-              const age = it.source ? priceAgeMonths(it.source) : null;
-              const stale = age !== null && age > 12;
-              const edited = it.source !== undefined && typeof it.price === "number" && it.price !== it.source.priceAtPick;
-              return (
-                <tr key={it.id} className="border-t border-slate-100 hover:bg-slate-50">
-                  <td colSpan={1}>
-                    <div className="flex items-baseline gap-2 px-0 py-2">
-                      <span className="hidden rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 sm:inline">{it.section}</span>
-                      <input
-                        value={it.name}
-                        onChange={(e) => patchItem(it.id, { name: e.target.value })}
-                        placeholder="ชื่อรายการงาน"
-                        className="w-full rounded border border-transparent bg-transparent px-1 py-1 hover:border-slate-200 focus:border-blue-400"
-                      />
-                    </div>
-                    {it.source && (
-                      <span
-                        className={`ml-1 inline-block rounded px-1.5 py-0.5 text-[11px] sm:ml-[calc(5rem+0.5rem)] ${stale ? "bg-amber-100 text-amber-900" : "bg-blue-100 text-blue-800"}`}
-                        title={it.source.kind === "private"
-                          ? `ราคาจากคลังของฉัน ณ ตอนเลือก: ${thb(it.source.priceAtPick)}${it.source.note ? ` — ที่มา: ${it.source.note}` : ""}${edited ? " — ผู้ใช้แก้ราคาเองแล้ว" : ""}`
-                          : `ราคา สนค. ณ ตอนเลือก: ${thb(it.source.priceAtPick)}${edited ? " — ผู้ใช้แก้ราคาเองแล้ว" : ""}`}
-                      >
-                        {it.source.kind === "private" ? (
-                          <>คลังของฉัน · {it.source.category}{it.source.note ? ` · ${it.source.note}` : ""}</>
-                        ) : (
-                          <>สนค. {it.source.provName} · {it.source.month ? `${THAI_MONTHS[it.source.month]} ${it.source.year}` : it.source.year}</>
-                        )}
-                        {stale ? " · ราคาเก่าเกิน 12 เดือน" : ""}
-                        {edited ? " · ปรับราคาแล้ว" : ""}
-                      </span>
-                    )}
+          {groups.map((g) => {
+            const isCollapsed = collapsed[g.section] ?? false;
+            const secTotal = g.items.reduce((a, x) => a + itemTotal(x.it), 0);
+            return (
+              <tbody key={g.section}>
+                <tr
+                  className="boq-sec-row cursor-pointer border-t border-slate-200 bg-slate-50"
+                  onClick={() => setCollapsed((c) => ({ ...c, [g.section]: !isCollapsed }))}
+                >
+                  <td colSpan={6} className="px-3 py-2">
+                    <span className="no-print mr-2 inline-block w-4 text-slate-400">{isCollapsed ? "▸" : "▾"}</span>
+                    <span className="font-medium text-blue-950">{g.section}</span>
+                    <span className="no-print ml-2 text-xs text-slate-500">{g.items.length} รายการ</span>
                   </td>
-                  <td className="px-3 py-2">
-                    <input value={it.unit} onChange={(e) => patchItem(it.id, { unit: e.target.value })}
-                      className="w-20 rounded border border-transparent bg-transparent py-1 hover:border-slate-200 focus:border-blue-400" />
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <input type="number" step="any" value={it.qty} onChange={(e) => patchItem(it.id, { qty: parseFloat(e.target.value) || 0 })}
-                      className="w-24 rounded border border-transparent bg-transparent py-1 text-right hover:border-slate-200 focus:border-blue-400" />
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <input type="number" step="any" value={it.price} onChange={(e) => patchItem(it.id, { price: parseFloat(e.target.value) || 0 })}
-                      className="w-28 rounded border border-transparent bg-transparent py-1 text-right hover:border-slate-200 focus:border-blue-400" />
-                  </td>
-                  <td className="px-3 py-2 text-right font-medium text-slate-800">{thb(itemTotal(it))}</td>
-                  <td className="no-print px-2 py-2 text-center">
-                    <button onClick={() => duplicateItem(it.id)} className="mr-1 text-slate-400 hover:text-blue-600" aria-label="คัดลอกรายการ" title="คัดลอกแถวนี้มาแก้ต่อ">⧉</button>
-                    <button onClick={() => removeItem(it.id)} className="text-slate-400 hover:text-red-600" aria-label="ลบรายการ">✕</button>
+                  <td colSpan={2} className="px-3 py-2 text-right text-sm font-medium text-slate-700">
+                    รวมหมวด: {thb(secTotal)}
                   </td>
                 </tr>
-              );
-            })}
-            {project.items.length === 0 && (
-              <tr><td colSpan={6} className="px-3 py-10 text-center text-slate-500">ยังไม่มีรายการ BOQ — กด เลือกจากคลังราคา หรือ เพิ่มรายการ เพื่อเริ่ม</td></tr>
-            )}
-          </tbody>
+                {g.items.map(({ it, index }, gi) => {
+                  const age = it.source ? priceAgeMonths(it.source) : null;
+                  const stale = age !== null && age > 12;
+                  const edited = it.source !== undefined && typeof it.price === "number" && it.price !== it.source.priceAtPick;
+                  return (
+                    <tr key={it.id} className={`grp-row border-t border-slate-100 hover:bg-slate-50 ${isCollapsed ? "hidden" : ""}`}>
+                      <td>
+                        <div className="flex items-baseline gap-2 px-0 py-2">
+                          <span className="text-xs text-slate-400">{gi + 1}.</span>
+                          <input
+                            value={it.name}
+                            onChange={(e) => patchItem(it.id, { name: e.target.value })}
+                            placeholder="ชื่อรายการงาน"
+                            className="w-full rounded border border-transparent bg-transparent px-1 py-1 hover:border-slate-200 focus:border-blue-400"
+                          />
+                        </div>
+                        {it.source && (
+                          <span
+                            className={`ml-6 inline-block rounded px-1.5 py-0.5 text-[11px] ${stale ? "bg-amber-100 text-amber-900" : "bg-blue-100 text-blue-800"}`}
+                            title={it.source.kind === "private"
+                              ? `ราคาจากคลังของฉัน ณ ตอนเลือก: ${thb(it.source.priceAtPick)}${it.source.note ? ` — ที่มา: ${it.source.note}` : ""}${edited ? " — ผู้ใช้แก้ราคาเองแล้ว" : ""}`
+                              : `ราคา สนค. ณ ตอนเลือก: ${thb(it.source.priceAtPick)}${edited ? " — ผู้ใช้แก้ราคาเองแล้ว" : ""}`}
+                          >
+                            {it.source.kind === "private" ? (
+                              <>คลังของฉัน · {it.source.category}{it.source.note ? ` · ${it.source.note}` : ""}</>
+                            ) : (
+                              <>สนค. {it.source.provName} · {it.source.month ? `${THAI_MONTHS[it.source.month]} ${it.source.year}` : it.source.year}</>
+                            )}
+                            {stale ? " · ราคาเก่าเกิน 12 เดือน" : ""}
+                            {edited ? " · ปรับราคาแล้ว" : ""}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <input value={it.unit} onChange={(e) => patchItem(it.id, { unit: e.target.value })}
+                          className="w-20 rounded border border-transparent bg-transparent py-1 hover:border-slate-200 focus:border-blue-400" />
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <input type="number" step="any" value={it.qty} onChange={(e) => patchItem(it.id, { qty: parseFloat(e.target.value) || 0 })}
+                          className="w-24 rounded border border-transparent bg-transparent py-1 text-right hover:border-slate-200 focus:border-blue-400" />
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <input type="number" step="any" value={it.price} onChange={(e) => patchItem(it.id, { price: parseFloat(e.target.value) || 0 })}
+                          className="w-28 rounded border border-transparent bg-transparent py-1 text-right hover:border-slate-200 focus:border-blue-400" />
+                      </td>
+                      <td className="no-print px-3 py-2">
+                        <div className="flex items-center gap-1">
+                          <input type="number" step="any" value={it.matPrice ?? ""} placeholder="วัสดุ"
+                            onChange={(e) => patchItem(it.id, { matPrice: e.target.value === "" ? undefined : parseFloat(e.target.value) || 0 })}
+                            className="w-20 rounded border border-transparent bg-transparent py-1 text-right hover:border-slate-200 focus:border-blue-400"
+                            title="ราคาวัสดุ/หน่วย — ลงส่วน ก. ค่าวัสดุอย่างน้อยที่สุด" />
+                          <input type="number" step="any" value={it.laborPrice ?? ""} placeholder="แรงงาน"
+                            onChange={(e) => patchItem(it.id, { laborPrice: e.target.value === "" ? undefined : parseFloat(e.target.value) || 0 })}
+                            className="w-20 rounded border border-transparent bg-transparent py-1 text-right hover:border-slate-200 focus:border-blue-400"
+                            title="ราคาแรงงาน/หน่วย — ลงส่วน ข. ค่าแรงอย่างน้อยที่สุด" />
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-right font-medium text-slate-800">{thb(itemTotal(it))}</td>
+                      <td className="no-print px-2 py-2">
+                        <select
+                          value={it.part ?? "construction"}
+                          onChange={(e) => patchItem(it.id, { part: e.target.value === "equipment" ? ("equipment" as const) : undefined })}
+                          className="rounded border border-slate-200 bg-white px-1 py-1 text-xs text-slate-700"
+                          title="ครุภัณฑ์ = แยกออกจากฐานคำนวณ Factor F และคิดค่าดำเนินงานแยก (กฎเหล็ก)"
+                        >
+                          <option value="construction">ก่อสร้าง</option>
+                          <option value="equipment">ครุภัณฑ์</option>
+                        </select>
+                      </td>
+                      <td className="no-print whitespace-nowrap px-2 py-2 text-center">
+                        <button onClick={() => moveItem(it.id, -1)} disabled={index === 0} className="mr-1 text-slate-400 hover:text-blue-600 disabled:opacity-25" aria-label="ย้ายขึ้น" title="ย้ายขึ้น">▲</button>
+                        <button onClick={() => moveItem(it.id, 1)} disabled={index === project.items.length - 1} className="mr-1 text-slate-400 hover:text-blue-600 disabled:opacity-25" aria-label="ย้ายลง" title="ย้ายลง">▼</button>
+                        <button onClick={() => duplicateItem(it.id)} className="mr-1 text-slate-400 hover:text-blue-600" aria-label="คัดลอกรายการ" title="คัดลอกแถวนี้มาแก้ต่อ">⧉</button>
+                        <button onClick={() => removeItem(it.id)} className="text-slate-400 hover:text-red-600" aria-label="ลบรายการ">✕</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            );
+          })}
+          {project.items.length === 0 && (
+            <tbody>
+              <tr><td colSpan={8} className="px-3 py-10 text-center text-slate-500">ยังไม่มีรายการ BOQ — กด เลือกจากคลังราคา หรือ เพิ่มรายการ เพื่อเริ่ม</td></tr>
+            </tbody>
+          )}
           <tfoot>
             {isPrivate && proposal && (
               <>
                 <tr className="border-t-2 border-slate-300 font-semibold text-blue-950">
-                  <td colSpan={4} className="px-3 py-2 text-right">รวมราคาวัสดุ-แรงงาน (ต้นทุน)</td>
+                  <td colSpan={6} className="px-3 py-2 text-right">รวมราคาวัสดุ-แรงงาน (ต้นทุน)</td>
                   <td colSpan={2} className="px-3 py-2 text-right">{thb(proposal.base)}</td>
                 </tr>
                 {proposal.lines.map((ln, i) => (
                   <tr key={i} className="border-t border-slate-100 text-slate-600">
-                    <td colSpan={4} className="px-3 py-2 text-right text-sm">
+                    <td colSpan={6} className="px-3 py-2 text-right text-sm">
                       {ln.label} <span className="text-xs text-slate-500">({ln.formula})</span>
                     </td>
                     <td colSpan={2} className="px-3 py-2 text-right text-sm">{thb(ln.amount)}</td>
                   </tr>
                 ))}
                 <tr className="border-t-2 border-slate-300 font-semibold text-blue-950">
-                  <td colSpan={4} className="px-3 py-3 text-right">
+                  <td colSpan={6} className="px-3 py-3 text-right">
                     ราคาเสนอ (รวมทุกปัจจัย)
                     <span className="block text-xs font-normal text-amber-900">ประมาณการ — ไม่ใช่ราคากลางตามหลักเกณฑ์</span>
                   </td>
@@ -373,10 +510,44 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
               </>
             )}
             {!isPrivate && (
-              <tr className="border-t-2 border-slate-300 font-semibold text-blue-950">
-                <td colSpan={4} className="px-3 py-3 text-right">รวมทั้งโครงการ</td>
-                <td colSpan={2} className="px-3 py-3 text-right text-lg text-green-700">{thb(projectTotal(project))}</td>
-              </tr>
+              <>
+                {gov?.calc ? (
+                  <>
+                    {gov.calc.steps.map((s, i) => (
+                      <tr key={i} className={s.kind === "total" ? "border-t-2 border-slate-300 font-semibold text-blue-950" : "border-t border-slate-100 text-slate-600"}>
+                        <td colSpan={6} className="px-3 py-2 text-right">
+                          {s.label}
+                          {s.formula && <span className="no-print text-xs text-slate-500"> ({s.formula})</span>}
+                        </td>
+                        <td colSpan={2} className={`px-3 py-2 text-right ${s.kind === "total" ? "py-3 text-lg text-green-700" : ""}`}>
+                          {thb(satangToBaht(s.satang))}
+                        </td>
+                      </tr>
+                    ))}
+                    {gov.calc.warnings.length > 0 && (
+                      <tr className="border-t border-amber-200">
+                        <td colSpan={8} className="px-3 py-2 text-xs text-amber-900">
+                          {gov.calc.warnings.map((w, i) => (
+                            <span key={i} className="block">⚠ {w}</span>
+                          ))}
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <tr className="border-t-2 border-slate-300 font-semibold text-blue-950">
+                      <td colSpan={6} className="px-3 py-3 text-right">รวมทั้งโครงการ</td>
+                      <td colSpan={2} className="px-3 py-3 text-right text-lg text-green-700">{thb(projectTotal(project))}</td>
+                    </tr>
+                    {gov?.err && (
+                      <tr>
+                        <td colSpan={8} className="px-3 py-2 text-xs text-amber-900">⚠ คำนวณราคากลางไม่สำเร็จ: {gov.err}</td>
+                      </tr>
+                    )}
+                  </>
+                )}
+              </>
             )}
           </tfoot>
         </table>
