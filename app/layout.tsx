@@ -1,10 +1,15 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "ระบบ BOQ งานก่อสร้าง | iServ",
   description:
     "ระบบจัดทำราคากลางงานก่อสร้าง (BOQ) และบริหารงานก่อสร้าง เวอร์ชันต้นแบบ ฟรี ใช้งานได้ทันที",
+  manifest: "/manifest.json",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#1e3a8a",
 };
 
 export default function RootLayout({
@@ -12,9 +17,6 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="th">
-      <head>
-        <link rel="manifest" href="/manifest.json" />
-      </head>
       <body className="min-h-screen flex flex-col bg-slate-50 text-slate-900 antialiased">
         <header className="border-b border-slate-200 bg-white">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
@@ -48,19 +50,21 @@ export default function RootLayout({
           </div>
         </footer>
 
-        {/* Register service worker สำหรับ PWA offline (F4.4) */}
-        <script
-          id="sw-register"
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('/sw.js', { scope: '/' })
-                  .then(() => console.log('SW registered'))
-                  .catch((e) => console.log('SW registration failed', e));
-              }
-            `,
-          }}
-        />
+        {/* Register service worker สำหรับ PWA offline (F4.4) — เฉพาะ production กันแคชรบกวนตอน dev */}
+        {process.env.NODE_ENV === "production" && (
+          <script
+            id="sw-register"
+            dangerouslySetInnerHTML={{
+              __html: `
+                if ('serviceWorker' in navigator) {
+                  navigator.serviceWorker.register('/sw.js', { scope: '/' })
+                    .then(() => console.log('SW registered'))
+                    .catch((e) => console.log('SW registration failed', e));
+                }
+              `,
+            }}
+          />
+        )}
       </body>
     </html>
   );
