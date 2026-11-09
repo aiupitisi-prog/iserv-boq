@@ -1,0 +1,43 @@
+# F4.3 - refreshed daily TPSO price snapshots.
+# Parts run via GitHub Actions (not Vercel Cron) because serverless on Vercel
+# uses a read-only filesystem; snapshot files are committed to the repo, and
+# the build then packages them into the /prices lambda (outputFileTracingIncludes).
+name: refresh-tpso-snapshots
+
+on:
+  schedule:
+    - cron: "0 21 * * *" # 04:00 Thailand time (UTC+7) daily
+  workflow_dispatch: # manual run available
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tpso-snapshots
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Fetch TPSO snapshots
+        run: node scripts/make-snapshots.mjs
+        env:
+          SNAP_PROVS: "10,40"
+          SNAP_YEARS: "2569,2568"
+      - name: Commit updated snapshots
+        run: |
+          if [ -z "$(git status --porcelain data/snapshots)" ]; then
+            echo "No snapshot changes to commit"
+            exit 0
+          fi
+          git config user.name "snapshot-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/snapshots
+          git commit -m "chore(phase4): refresh TPSO snapshots (automated)"
+          git push
