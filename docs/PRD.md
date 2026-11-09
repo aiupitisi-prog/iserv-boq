@@ -180,9 +180,9 @@ type TpsoItem = { code; name; unit; headCategory; headCategoryName;
 
 **เป้าหมาย:** หน้าราคาเร็วแม้แคชเย็น และไม่ตายเมื่อ TPSO ล่ม (แก้ R1, R2)
 
-- F4.1 **Snapshot ราคา** — เก็บผลลัพธ์ล่าสุดต่อ (จังหวัด, ปี) ลง storage ฝั่งเซิร์ฟเวอร์ (เริ่มจาก Vercel KV free tier หรือ cache ถาวรระหว่าง warm instance) → first load < 2 วิ
+- F4.1 **Snapshot ราคา** — เก็บผลลัพธ์ล่าสุดต่อ (จังหวัด, ปี) เป็นไฟล์ JSON ใน repo (`data/snapshots/`) ที่เติมโดย `scripts/make-snapshots.mjs` (dev + GitHub Actions) — serverless อ่านจากไฟล์ในบันเดิล (`outputFileTracingIncludes`) → first load < 2 วิ *(เปลี่ยนจากแผนเดิม "Vercel KV": ไม่เพิ่มบริการ/ค่าใช้จ่าย และไฟล์ต้อง commit ตรวจสอบย้อนหลังได้)*
 - F4.2 **Fallback** — เมื่อ TPSO ล่ม ใช้ snapshot ล่าสุด + แสดง "ข้อมูล ณ วันที่ ..." ชัดเจน
-- F4.3 **รีเฟรชตามกำหนด** — Vercel Cron รายวันดึงราคาจังหวัดยอดนิยม + ปีงบปัจจุบัน
+- F4.3 **รีเฟรชตามกำหนด** — GitHub Actions รายวัน 04:00 (ไทย) ดึงราคาจังหวัดยอดนิยม + ปีงบปัจจุบัน แล้ว commit snapshot เข้า repo (Vercel cron ใช้ไม่ได้เพราะ serverless เขียนไฟล์ไม่ได้)
 - F4.4 ย้ายที่เก็บโปรเจกต์เป็น **IndexedDB** (กันโควตา localStorage) + PWA (ใช้ offline ได้)
 
 **เกณฑ์ตรวจรับ:** โหลด `/prices` เย็น < 3 วิ (ปัจจุบัน ~20–30 วิ); ปิดเน็ต TPSO ยังแสดง snapshot พร้อมป้ายอายุข้อมูล
