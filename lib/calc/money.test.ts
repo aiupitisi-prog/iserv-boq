@@ -7,6 +7,7 @@ describe("money (สตางค์ integer)", () => {
   it("toSatang — ปัด half-up ที่จุดเดียวของระบบ", () => {
     expect(toSatang(1250.5)).toBe(125050);
     expect(toSatang(0.005)).toBe(1); // 0.005 บาท → 0.5 สตางค์ → 1
+    expect(toSatang(1.005)).toBe(101); // float จากจุดทศนิยม 3 ตำแหน่งตกล่าง 100.5 → epsilon ช่วยให้ half-up ถูก (F16)
     expect(toSatang(-3.25)).toBe(-325);
     expect(toSatang(NaN)).toBe(0);
     expect(toSatang(Infinity)).toBe(0);
@@ -50,6 +51,8 @@ describe("bahtText (ตัวเลขเป็นตัวหนังสือ
     expect(bahtText(100_000_000)).toBe("หนึ่งล้านบาทถ้วน"); // 1,000,000.00
     expect(bahtText(100_000_100)).toBe("หนึ่งล้านเอ็ดบาทถ้วน"); // 1,000,001.00
     expect(bahtText(1_100_000_000)).toBe("สิบเอ็ดล้านบาทถ้วน"); // 11,000,000.00
+    // ล้านล้าน — กลุ่มศูนย์ตรงกลางยังคง "ล้าน" ครบ + กลุ่มท้าย "เอ็ด"
+    expect(bahtText(100_000_000_000_100)).toBe("หนึ่งล้านล้านเอ็ดบาทถ้วน"); // 1,000,000,000,001.00
   });
 
   it("สตางค์", () => {

@@ -107,8 +107,10 @@ export function computeGovBOQ(project: BoqProject, ruleset: Ruleset | undefined 
   }
 
   const directCost = material + labor;
-  steps.push({ label: "ร่างประมาณราคาส่วน ก. — ค่าวัสดุอย่างน้อยที่สุด", satang: material, kind: "material" });
-  steps.push({ label: "ร่างประมาณราคาส่วน ข. — ค่าแรงอย่างน้อยที่สุด", satang: labor, kind: "labor" });
+  // กฎเหล็ก trace: แจ้งการปัดเศษระดับรายการ — ราคา/หน่วยปัดเป็นสตางค์ก่อนคูณปริมาณ (mulQty)
+  const unitRoundNote = "ราคา/หน่วยของแต่ละรายการปัดเศษ half-up เป็นสตางค์ก่อนคูณด้วยปริมาณ (mulQty)";
+  steps.push({ label: "ร่างประมาณราคาส่วน ก. — ค่าวัสดุอย่างน้อยที่สุด", satang: material, kind: "material", notes: [unitRoundNote] });
+  steps.push({ label: "ร่างประมาณราคาส่วน ข. — ค่าแรงอย่างน้อยที่สุด", satang: labor, kind: "labor", notes: [unitRoundNote] });
   steps.push({
     label: "ต้นทุนโดยตรงของโครงการ (A)",
     formula: `ก. ${formatSatang(material)} + ข. ${formatSatang(labor)}`,
@@ -120,26 +122,23 @@ export function computeGovBOQ(project: BoqProject, ruleset: Ruleset | undefined 
   let factorF: number | null = null;
   let afterFactor = directCost;
   if (ruleset?.factorF) {
-    try {
-      const r = lookupFactorF(directCost, ruleset.factorF);
-      factorF = r.factor;
-      afterFactor = Math.round(directCost * r.factor); // ปัดเศษ half-up เป็นสตางค์
-      steps.push({
-        label: `Factor F = ${r.factor.toFixed(6)}${r.interpolated ? ` (interpolate ช่วงต้นทุน [${r.row.B}, ${r.row.C}] ล้านบาท)` : " (ขอบตารางพอดี — ใช้ค่าตรง)"}`,
-        formula: r.interpolated ? "F = D − (D − E) × (A − B) / (C − B)" : undefined,
-        satang: afterFactor,
-        kind: "factor",
-        notes: [
-          `A = ${formatSatang(directCost)} บาท (${(directCost / 1e8).toLocaleString("th-TH", { maximumFractionDigits: 4 })} ล้านบาท)`,
-          `พารามิเตอร์ตาราง: ทดรองจ่าย ${ruleset.factorF.advancePct}% · ประกันผลงาน ${ruleset.factorF.retentionPct}% · ดอกเบี้ย ${ruleset.factorF.interestPct}% · VAT ${ruleset.factorF.vatPct}%`,
-          "ปัดเศษ half-up เป็นสตางค์ (ค่าเริ่มต้นระบบ — ตรวจกับหลักเกณฑ์ที่ใช้บังคับ)",
-          `ที่มาตาราง: ${ruleset.sourceDoc}`,
-        ],
-      });
-    } catch (e) {
-      if (e instanceof CalcError && e.code === "OUT_OF_TABLE") throw e; // นอกตาราง = หยุดคำนวณ (ห้าม extrapolate)
-      throw e;
-    }
+    // OUT_OF_TABLE จาก lookupFactorF จะ propagate ขึ้นไปทันที = หยุดคำนวณ (ห้าม extrapolate; 
+    // ผู้เรียกระดับ UI/docs ใช้ computeGovBOQSafe ถ้าอยากแสดงแจ้งเตือนแทนการ throw)
+    const r = lookupFactorF(directCost, ruleset.factorF);
+    factorF = r.factor;
+    afterFactor = Math.round(directCost * r.factor); // ปัดเศษ half-up เป็นสตางค์
+    steps.push({
+      label: `Factor F = ${r.factor.toFixed(6)}${r.interpolated ? ` (interpolate ช่วงต้นทุน [${r.row.B}, ${r.row.C}] ล้านบาท)` : " (ขอบตารางพอดี — ใช้ค่าตรง)"}`,
+      formula: r.interpolated ? "F = D − (D − E) × (A − B) / (C − B)" : undefined,
+      satang: afterFactor,
+      kind: "factor",
+      notes: [
+        `A = ${formatSatang(directCost)} บาท (${(directCost / 1e8).toLocaleString("th-TH", { maximumFractionDigits: 4 })} ล้านบาท)`,
+        `พารามิเตอร์ตาราง: ทดรองจ่าย ${ruleset.factorF.advancePct}% · ประกันผลงาน ${ruleset.factorF.retentionPct}% · ดอกเบี้ย ${ruleset.factorF.interestPct}% · VAT ${ruleset.factorF.vatPct}%`,
+        "ปัดเศษ half-up เป็นสตางค์ (ค่าเริ่มต้นระบบ — ตรวจกับหลักเกณฑ์ที่ใช้บังคับ)",
+        `ที่มาตาราง: ${ruleset.sourceDoc}`,
+      ],
+    });
   } else {
     warnings.push(
       "ยังไม่มีตาราง Factor F ในชุดกฎที่ pin ไว้ — คำนวณแบบไม่ปรับ (F = 1); นำเข้าตารางจากเอกสารทางการที่หน้า ชุดกฎราคากลาง",

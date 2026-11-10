@@ -8,7 +8,9 @@ export type Satang = number; // เลขเต็มเสมอ
 // แปลงบาท (float จาก storage/UI) → สตางค์เลขเต็ม — จุดปัดเศษเดียวของระบบ (half-up)
 export function toSatang(baht: number): Satang {
   if (!isFinite(baht)) return 0;
-  return Math.round(baht * 100);
+  // epsilon เล็ก ๆ กัน float ตกล่างกว่าหลักครึ่งจริง (เช่น 1.005*100 = 100.49999999999997 → ต้องได้ 101 ไม่ใช่ 100)
+  const eps = baht < 0 ? -1e-6 : 1e-6;
+  return Math.round(baht * 100 + eps);
 }
 
 // สตางค์ → บาท (สำหรับแสดงผลเท่านั้น)

@@ -61,7 +61,8 @@ describe("lookupFactorF (เวกเตอร์มาตรฐาน)", () => 
     expect(r1.factor).toBeCloseTo(1.3 - ((1.3 - 1.25) * (7 - 5)) / 5, 10);
     const r2 = lookupFactorFByMillion(10, TEST_TABLE_2); // ขอบร่วม — ต้องเจอแถวใดแถวหนึ่งแบบค่าตรง
     expect(r2.interpolated).toBe(false);
-    expect([1.25, 1.3]).toContain(r2.factor);
+    // ขอบร่วมต้องจับแถวล่างเสมอ (B ≤ x ≤ C ของแถวล่าง = สิ้นสุดที่ 10) → F = 1.25 เป็นค่าตรง
+    expect(r2.factor).toBe(1.25);
   });
 
   it("รับสตางค์: 15 ล้านบาท = 1,500,000,000 สตางค์ → F = 1.2250", () => {
