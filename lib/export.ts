@@ -11,7 +11,14 @@
 
 import type { Ruleset } from "./ruleset";
 import type { BoqItem, BoqProject } from "./boq";
-import { itemTotal, partLabel, proposalSummary, sectionTotals, sourceLabel } from "./boq";
+import {
+  itemTotal,
+  partLabel,
+  proposalSummary,
+  sectionTotals,
+  sourceLabel,
+  sourcePickedAt,
+} from "./boq";
 import { computeGovBOQ } from "./calc/compute";
 import { satangToBaht } from "./calc/money";
 
@@ -58,6 +65,8 @@ export function toCsvRows(project: BoqProject): (string | number)[][] {
       partLabel(it),
       num2(itemTotal(it)),
       sourceLabel(it),
+      it.source !== undefined && it.source !== null ? num2(it.source.priceAtPick) : "",
+      it.source ? sourcePickedAt(it) : "",
       it.note ?? "",
     ]);
   }
@@ -65,7 +74,9 @@ export function toCsvRows(project: BoqProject): (string | number)[][] {
 }
 
 function num2(n: number): number {
-  return Math.round(n * 100) / 100;
+  // epsilon กัน float ที่ตกล่างจริง (เช่น 1.005*100 = 100.49999999999997) — แสดงผลแบบ half-up ทั้งหมด
+  const rounded = Math.round(n * 100 + (n < 0 ? -1e-6 : 1e-6));
+  return rounded / 100;
 }
 
 export function toCsv(project: BoqProject): string {
@@ -86,10 +97,12 @@ async function xlsxModule(): Promise<XlsxModule> {
 }
 
 function fmtCells(XL: XlsxModule, ws: any, colLetter: string, startRow: number, fmt: string): void {
-  for (let r = startRow; ; r++) {
-    const addr = `${colLetter}${r}`;
-    const cell = ws[addr];
-    if (!cell) break;
+  // ไล่จนถึงแถวสุดท้ายของชีต (จาก !ref) — ข้ามแถวว่างระหว่างหมวดงาน (อย่าแตก break แบbbเดิม ททำให้หมวดหลังไม่ได้ format)
+  const refMatch = String(ws["!ref"] ?? "").match(/\d+$/);
+  const lastRow = refMatch ? parseInt(refMatch[0], 10) : startRow + 200;
+  for (let r = startRow; r <= lastRow; r++) {
+    const cell = ws[`${colLetter}${r}`];
+    if (!cell) continue; // แถวว่าง (คั่นหมวด) — ไล่ต่อ
     if (typeof cell.v === "number") cell.z = fmt;
   }
 }

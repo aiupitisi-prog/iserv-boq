@@ -70,7 +70,7 @@ describe("toCsv", () => {
     expect(nameCell).toContain('"พื้น"');
     expect(nameCell).toContain("\n");
     const csv = toCsv(project());
-    // จำนวนแถวหลัง join — รายการที่มี \n ต้องถูกครอบด้วย " จน parse กลับได้ครบ 5 แถว (header + 3 items + รวม?)
+    // รายการที่มี \n ต้องถูกครอบด้วย " จน parse กลับได้ครบ 4 แถว (header + 3 items)
     const parsed = parseCsv(csv);
     expect(parsed.length).toBe(4); // header + 3 items
     expect(parsed[1][2]).toContain("รวมขนของออก");
