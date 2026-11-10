@@ -77,6 +77,10 @@ iServ BOQ เป็นเว็บแอปพลิเคชันสำหร�
 | `5a5dd12` | `lib/tpso.ts` — client ดึงราคา สนค. + แคชฝั่งเซิร์ฟเวอร์ |
 | `912eb45` | หน้า `/prices` ใช้ราคาจริง TPSO (filter/search/pagination) |
 | `3278a04`–`be0e0c4` | ปรับข้อความ homepage/guide/terms ให้อ้างข้อมูล สนค. |
+| `c20845f3`–`f39f17dc` | เพิ่ม `docs/reg-2569/` — พยานหลักฐานประกาศ ว 475–481 (11 ไฟล์: README + manifest sha256 + extract เล่มข้อความ + PDF 5 ฉบับ ~35MB) |
+| `18bb85f4` | PRD v1.2: สถานะส่วนที่ 5 — ดาวน์โหลดครบ 5 ฉบับ, ยืนยันหมายเลข 0433.2/ว, ว 481 = 48 ตาราง (4×12) |
+| `1629c5ec` | `lib/ruleset.ts` — ขยาย FactorFRow (F/G ไม่รวม VAT · D2/D3 ฝนชุก · anomalyNote · open) + `selectFactorFTable` + `factorFAt` (lerp ตามหมายเหตุ 1) |
+| `869c6f7c` | `lib/ruleset-w481-2569.ts` — dataset ว 481 generate อัตโนมัติ: 48 ตาราง + checksum ต่อตาราง + SET `ea1a96fc615779ec…` + แถว anomaly ติดป้าย 1 แถว (งานทาง a0-r5 ช่วง 180–190) |
 
 ### 2.5 Data Model ปัจจุบัน
 
@@ -95,12 +99,12 @@ type ProjectAward = { winningPrice?; contractNoteDate?; contractor?; contractorS
 type BoqProject = { id; name; address; boqType; createdAt; items;
                     province?; budgetYear?; mode?; factors?; rulesetId?; award? }
 
-// lib/ruleset.ts (F2.4) — เรจิสทรีตัวเลขกฎหมาย (ยังว่างเปล่า — import ในเฟส 3)
+// lib/ruleset.ts (F2.4) — เรจิสทรีตัวเลขกฎหมาย (มีชุดตาราง Factor F ว 481 แล้ว — commit 1629c5ec)
 type FactorFTable = { advancePct; retentionPct; interestPct; vatPct;
                       workType?: "building" | "road" | "bridge" | "irrigation";  // ว 481 = 4 ประเภทงาน × 12 ตาราง
-                      rows: { B; C; D; E }[] }
+                      rows: { B; C; D; E; F?; G?; D2?; E2?; D3?; E3?; anomalyNote?; open? }[] }
 type Ruleset = { id; name; sourceDoc; sourceUrl?; effectiveFrom; checksum;
-                 factorF?; labor?; contingencyPct?; swcPct?; durableHandlingPct?;
+                 factorF?; factorFTables?; labor?; contingencyPct?; swcPct?; durableHandlingPct?;
                  notices?; supersededBy?; createdAt }
 
 // lib/tpso.ts — ราคาจาก สนค. (แปลงแล้ว)
@@ -209,7 +213,7 @@ type TpsoItem = { code; name; unit; headCategory; headCategoryName;
 |---|---|
 | ประกาศหลัก (19 หน้า) + เล่ม 1: แนวทางปฏิบัติ 22 ข้อ | ✅ สกัดครบ ข้อความสะอาด — ใช้อ้างอิงฐานได้ (ยังติดป้าย "อ่านจากสแกน") |
 | เล่ม 2: แบบฟอร์ม ปร.1–ปร.4 + แบบแสดงเหตุผลพิเศษ (หน้า 5–13) · วิธีการคำนวณ 12 ขั้น (หน้า 14–16) · โครง Factor F / สูตรดอกเบี้ย / สูตรเทียบ / ตัวอย่าง JBIC (หน้า 174–181) | ✅ อ่านจบ — ลงกลไก/สูตรเครื่องยนต์ได้ทันที |
-| ตาราง Factor F ฉบับตัวเลข (6%) — **48 ตาราง = 4 ประเภทงาน × 12** (อาคาร หน้า 4–15 · งานทาง 17–28 · สะพาน+ท่อเหลี่ยม 30–41 · ชลประทาน 43–54) | ✅ ดาวน์โหลด ว 481 (PDF ดิจิทัล 54 หน้า) + สกัดข้อความครบ → `docs/reg-2569/extract/w481-pages.txt` · อัตรายืนยันจากตัวไฟล์: ดอกเบี้ยเงินกู้ 6%/ปี + VAT 7%, ค่าจ้างล่วงหน้า 0/5/10/15% × ประกันผลงาน 0/5/10% · ⏳ parser → `FactorFTable[]` + checksum ต่อตาราง |
+| ตาราง Factor F ฉบับตัวเลข (6%) — **48 ตาราง = 4 ประเภทงาน × 12** (อาคาร หน้า 4–15 · งานทาง 17–28 · สะพาน+ท่อเหลี่ยม 30–41 · ชลประทาน 43–54) | ✅ **parser เสร็จ** → `lib/ruleset-w481-2569.ts` (generate จาก geometry ของ PDF พร้อม validate) + checksum ต่อตาราง + SET `ea1a96fc615779ec…` เข้าชุดกับ `lib/ruleset.ts` (`selectFactorFTable` / `factorFAt` interpolate ตามหมายเหตุ 1) · ตรวจทุกแถว: Factor F = "รวมในรูป Factor" × 1.07 ตรงทุกช่อง · **เจอจุดพิมพ์เบี่ยงเบน 1 แถว** (งานทาง a0-r5 ช่วง 180–190) — เก็บค่าตามตัวประกาศ + ป้าย `anomalyNote` ผ่าน validator แบบ strict ช่วง · ⚠️ ยังติดป้าย "ยืนยันกับต้นฉบับราชกิจจานุเบกษา/เล่มจริง" ก่อนคำนวณเอกสารส่งจริง |
 | ว 480 บัญชีค่าแรงถอดแบบ (45 หน้า ดิจิทัล) · ว 477 ค่าขนส่ง (280 หน้า ดิจิทัล ~41,660 ค่าในตาราง) · ว 475 เครื่องจักรงานทาง (91 หน้า ดิจิทัล) · ว 476 ผ่อนผัน (2 หน้า **สแกน**) | ✅ PDF ครบทุกฉบับ ที่ `docs/reg-2569/` + manifest sha256 (หมายเลข 0433.2/ว ยืนยันจากตัวไฟล์ 3 ฉบับ; ว 476 รอเล่มจริง) · ⏳ สกัดเป็นชุดข้อมูล ruleset — ลำดับ: ว 481 → ว 480 → ว 477 → ว 475 · ว 476 ต้องถอดข้อความจากภาพ/เล่มจริงก่อน |
 | เล่ม 2 ส่วนที่ 2 (หน้า 19–173): บัญชีแสดงรายการงานก่อสร้างอาคาร — การเผื่อ / มาตรฐานการวัดปริมาณงาน / ค่าวัสดุมวลรวมต่อหน่วย / บัญชีค่าแรงงาน | ⏳ ยังไม่ได้สกัดครบเป็นชุดข้อมูล — สกัดในเฟส 3 พร้อมตรวจกับต้นฉบับ (ข้อความมาจาก OCR) |
 | เล่ม 3 งานทาง | ⏳ ข้อความสกัดสะอาดเกือบครบ พร้อมอ่าน; ตารางเครื่องจักร/ค่าเสื่อมงานทางให้ใช้ตามประกาศ ว 475 |
