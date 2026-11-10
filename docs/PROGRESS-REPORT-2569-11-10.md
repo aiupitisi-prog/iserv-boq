@@ -1,6 +1,6 @@
 # รายงานความก้าวหน้า — iServ BOQ (PRD v1.2)
 
-**วันที่รายงาน:** 10 พฤศจิกายน 2569 · **ฐานข้อมูลอ้างอิง:** PRD ฉบับ 1.2 (`docs/PRD.md`) · **Repo:** https://github.com/aiupitisi-prog/iserv-boq (main @ `869c6f7c`) · **Production:** https://iserv-boq.vercel.app
+**วันที่รายงาน:** 10 พฤศจิกายน 2569 (อัปเดตหลัง deploy เวลา 13:40 น.) · **ฐานข้อมูลอ้างอิง:** PRD ฉบับ 1.2 (`docs/PRD.md`) · **Repo:** https://github.com/aiupitisi-prog/iserv-boq (main @ `db463df`) · **Production:** https://iserv-boq.vercel.app
 
 > ⚠️ **ข้อเตือนตามกฎเหล็กของโปรเจกต์:** ตัวเลขกฎหมายทุกตัวในรายงานนี้มาจาก **Yotathai mirror** ไม่ใช่ราชกิจจานุเบกษาโดยตรง — ต้องยืนยันกับต้นฉบับทางการก่อนนำไปคำนวณเอกสารที่ส่งหน่วยงานจริง
 
@@ -12,21 +12,21 @@
 |---|---|
 | เฟส 1 — คลังราคา สนค. → BOQ | ✅ เสร็จ |
 | เฟส 2 — คลังราคาส่วนตัว + ปัจจุหน้า + ruleset registry | ✅ เสร็จ |
-| เฟส 3 — เครื่องยนต์คำนวณ + เอกสาร + Excel | 🟡 เกือบเสร็จ (ประมาณ 80%) |
-| เฟส 4 — snapshot / IndexedDB / PWA | 🟡 โค้ดเสร็จ แต่ **ยังไม่ขึ้น production** |
+| เฟส 3 — เครื่องยนต์คำนวณ + เอกสาร + Excel | 🟡 เกือบเสร็จ (ประมาณ 80%) · **deploy แล้ว** |
+| เฟส 4 — snapshot / IndexedDB / PWA | ✅ เสร็จ + **ขึ้น production แล้ว** (ตรวจสอบ 10 พ.ย. 2569) |
 | เฟส 5 — บัญชีผู้ใช้ + ซิงก์ (Supabase) | ⬜ ยังไม่เริ่ม |
 | เฟส 6 — วิเคราะห์ราคา / ดัชนี | ⬜ ยังไม่เริ่ม |
 
 **สามประเด็นที่ต้องรู้ก่อนตัดสินใจงานต่อ**
 
-1. **🚨 repo ที่ HEAD ยัง build ไม่ผ่าน → production ค้างที่ build เก่า**
-   `package.json` บน GitHub ไม่มี `xlsx` และ `vitest` แต่ `lib/export.ts` มี `typeof import("xlsx")` และไฟล์ `*.test.ts` import `vitest` → `next build` (ซึ่งรัน type-check) จะตกด้วย `TS2307: Cannot find module 'xlsx'` ผลคือ production ยังเป็นเวอร์ชัน **ก่อนเฟส 3/4** (`/rulesets`, `/api/prices/snapshot/...`, `/api/prices/refresh` ตอบ 404)
+1. **✅ แก้แล้ว — repo build ผ่านและ production ได้เฟส 3/4 (10 พ.ย. 2569)**
+   ต้นเหตุ: `package.json` บน GitHub ไม่มี `xlsx` และ `vitest` แต่ `lib/export.ts` มี `typeof import("xlsx")` และไฟล์ `*.test.ts` import `vitest` → `next build` (ซึ่งรัน type-check) ตกด้วย `TS2307: Cannot find module 'xlsx'` ผลคือ production ค้างที่ build เก่า (`/rulesets`, `/api/prices/snapshot/...`, `/api/prices/refresh` ตอบ 404) — **แก้แล้ว:** เพิ่ม dependency + commit `package-lock.json` + push ขึ้น `main` (`6bec6ba`…`db463df`) → build ผ่าน · เทสต์ 39/39 · ตรวจ production ซ้ำแล้ว `/rulesets` 200 · `/api/prices/snapshot/...` 200 · `/prices` จาก 28 วิ → **1.35 วิ** (ผ่าน KPI)
 2. **เส้นประสงค์ค้าง 2 เรื่อง (เป็นแกนของเฟส 3 ที่ยังไม่ปิด)**
    - ชุดตาราง **ว 481 (48 ตาราง)** ถูก generate เสร็จและมี checksum แล้ว แต่ **ยังไม่ถูกต่อเข้ากับเครื่องยนต์คำนวณและหน้า import** — `lib/calc/compute.ts` อ่านแค่ `ruleset.factorF` ตารางเดียว
    - ชุดเอกสารพิมพ์ยังเป็น **10 ฉบับโครงเดิม (ส่วน ก./ข./ค./ง. + S.W.C.)** ไม่ใช่ **9 ชิ้นตามข้อ 11 เล่ม 2** (ปร.1(ก)/ปร.1/ปร.2(ก)/ปร.2/ปร.3/ปร.4 + รายละเอียด Factor F + บันทึกเหตุผลสืบราคา) — GAP ใน PRD §5.4 ยังไม่ปิด
 3. **ตัวเลขกฎหมายยังเป็น “ยังไม่ยืนยัน”** — PDF ว 475–481 มาจาก Yotathai มี manifest + sha256 ครบ แต่ยังไม่ได้ยืนยันกับราชกิจจานุเบกษา/เล่มจริง
 
-**สรุปความคืบหน้าโดยรวม: ~68% ของแผน 6 เฟส (เฟส 1–2 เสร็จ เฟส 3 เกือบเสร็จ เฟส 4 เสร็จในโค้ดแต่ไม่ deploy เฟส 5–6 ยังไม่เริ่ม)**
+**สรุปความคืบหน้าโดยรวม: ~72% ของแผน 6 เฟส (เฟส 1–2 เสร็จ · เฟส 3 เกือบเสร็จและ deploy แล้ว · เฟส 4 เสร็จและ deploy แล้ว · เฟส 5–6 ยังไม่เริ่ม)**
 
 ---
 
@@ -50,10 +50,10 @@
 | | F3.4 ส่งออก Excel (xlsx) / CSV | ✅ | `lib/export.ts` (CSV UTF-8 BOM + xlsx 3 ชีต), ปุ่มใน editor |
 | | F3.5 เครื่องยนต์คำนวณราคากลาง `lib/calc/` | ✅ (โครงสร้าง) | `lib/calc/{money,factorf,compute,reduce}.ts` + เวกเตอร์ 39 เคส · **ยังอ่านได้แค่ตาราง Factor F เดียว** |
 | | F3.6 เอกสาร 9 ชิ้นตามข้อ 11 เล่ม 2 | ⬜ | ยังเป็นชุด 10 ฉบับโครงเดิม — **GAP ยังไม่ปิด** |
-| **4** | F4.1 Snapshot ราคาใน repo | ✅ (โค้ด) | `lib/snapshot.ts`, `data/snapshots/*.json` (5 ไฟล์), `next.config.mjs` (`outputFileTracingIncludes`) |
-| | F4.2 Fallback + ป้ายอายุข้อมูล | ✅ (โค้ด) | `app/prices/page.tsx` (`isStale` > 24 ชม.) |
-| | F4.3 รีเฟรชรายวัน 04:00 น. | ✅ (โค้ด) | `.github/workflows/snapshot-refresh.yml` (cron `0 21 * * *` UTC) + `scripts/make-snapshots.mjs` |
-| | F4.4 IndexedDB + PWA | ✅ (โค้ด) | `lib/storage-idb.ts`, `lib/storage.ts` (migrate + fallback), `public/sw.js`, `public/manifest.json` |
+| **4** | F4.1 Snapshot ราคาใน repo | ✅ (โค้ด + deploy) | `lib/snapshot.ts`, `data/snapshots/*.json` (5 ไฟล์), `next.config.mjs` (`outputFileTracingIncludes`) · production ตอบ 200 · 1.65 MB |
+| | F4.2 Fallback + ป้ายอายุข้อมูล | ✅ (โค้ด + deploy) | `app/prices/page.tsx` (`isStale` > 24 ชม.) · production แสดงป้าย “ข้อมูลสแนปชอตที่บันทึกเมื่อ …” แล้ว |
+| | F4.3 รีเฟรชรายวัน 04:00 น. | ✅ (โค้ด + ทำงานจริง) | `.github/workflows/snapshot-refresh.yml` (cron `0 21 * * *` UTC) + `scripts/make-snapshots.mjs` · snapshot ล่าสุด `2026-11-09T21:44:19Z` · `/api/prices/refresh` ตอบ 200 (ดึงสดได้ 6,435 แถว) |
+| | F4.4 IndexedDB + PWA | ✅ (โค้ด + deploy) | `lib/storage-idb.ts`, `lib/storage.ts` (migrate + fallback), `public/sw.js`, `public/manifest.json` |
 | **5** | F5.1–F5.4 Supabase auth / sync / share link / privacy | ⬜ | ยังไม่มีโค้ด · `app/privacy/page.tsx` ระบุว่าไม่มีเซิร์ฟเวอร์ |
 | **6** | F6.1–F6.4 กราฟย้อนหลัง / เทียบจังหวัด / ดัชนี K / แจ้งเตือน | ⬜ | ยังไม่มีโค้ด |
 
@@ -78,12 +78,20 @@
 
 ผลทดสอบ: **5 ไฟล์ / 39 เคส ผ่านหมด** (`npm.cmd test`, vitest 5.1.0)
 
-### 3.3 เฟส 4 — ความเร็ว + ความทนทาน (โค้ดเสร็จ)
+### 3.3 เฟส 4 — ความเร็ว + ความทนทาน (โค้ดเสร็จ + **deploy แล้ว 10 พ.ย. 2569**)
 - Snapshot 5 ไฟล์ใน `data/snapshots/` (prov 10/40 × ปี 2568/2569 + master) — `prov_10_year_2569.json` มี **6,435 แถว** ดึงเมื่อ 9 พ.ย. 2569
 - `next.config.mjs` ระบุ `outputFileTracingIncludes` ให้แพ็ก `data/snapshots/**/*` ไปกับ lambda (ไม่งั้นบน Vercel จะอ่าน snapshot ไม่ได้แล้วหลุดไปเรียก สนค. สด)
 - GitHub Actions รีเฟรช snapshot รายวัน 04:00 น. (ไทย) แล้ว commit เข้า repo → Vercel build ใหม่
 - `lib/storage-idb.ts` — IndexedDB (`iserv-boq-db` v2, stores: projects/pricelist) พร้อม migrate จาก localStorage และ fallback เมื่อใช้ไม่ได้
 - PWA: `public/sw.js` (network-first สำหรับ HTML, cache-first สำหรับ `/_next/static`) + `manifest.json`
+
+### 3.4 รอบนี้ — ติดตั้ง Git, ปลดล็อก build และ deploy ขึ้น production
+- **ติดตั้ง Git 2.56.0.windows.4** (`C:\Program Files\Git` + Git Bash 5.3.15) และตั้งค่า `user.name` / `user.email` / `init.defaultBranch=main` · credential = Git Credential Manager
+- **ตั้ง repo บนเครื่องนี้**: `git init -b main` → `remote add origin` → `fetch` → เชื่อม `main` เข้ากับ `origin/main` ด้วย `update-ref` + `reset` (mixed) → **ไม่ทับ/ลบไฟล์งานใด ๆ**
+- **diff จริง 25 ไฟล์** → พบบั๊กที่กำลัง deploy อยู่จริง 4 จุด (xlsx format หมวดที่ 2+ · หัวตารางสีเทาตอนพิมพ์ · ปัดเศษ .005 · trace ไม่บันทึกการปัดเศษ) → แก้ + เพิ่มเทสต์
+- **ปลดล็อก build**: เพิ่ม `xlsx` + `vitest` + script `test` + commit `package-lock.json` (`npm ci --dry-run` ผ่าน) → `next build` ผ่าน · เทสต์ 39/39
+- **push ขึ้น `main` 5 ก้อน**: `6bec6ba` (build fix) → `a182f82` (export) → `cf2e67c` (calc) → `e16ec76` (print) → `db463df` (docs) → Vercel auto-build → **ตรวจ production ผ่าน**
+- ตัดสินใจสุภาพ repo: `docs/xy.pdf` (27 MB) → `.gitignore` · `vercel.json` → ลบ (เหลือแนวทางเดียว GitHub Actions ตาม F4.3) · ดึง `data/snapshots/` + `docs/reg-2569/` จาก `origin/main` มาก่อน commit (ไม่ให้ข้อมูลเก่าทับของใหม่)
 
 ---
 
@@ -123,7 +131,7 @@ PRD §5.4 กำหนดให้รายงานตามข้อ 11 เล
 
 > **ยังไม่แก้** — ต้องเขียนชุดเอกสาร 9 ชิ้นใหม่ (งานข้อ 4 ในแผนถัดไป) เป็นงานเขียนโค้ดจริง ไม่ใช่แค่สลับ label
 
-### G3 — Production ไม่ได้ deploy เวอร์ชันปัจจุบัน 🔴
+### G3 — Production ไม่ได้ deploy เวอร์ชันปัจจุบัน — ✅ **ปิดแล้ว 10 พ.ย. 2569**
 
 **หลักฐาน:** `package.json` บน GitHub มีแค่ `next/react/react-dom` (+ dev: tailwind, types) — **ไม่มี `xlsx` และไม่มี `vitest`** แต่โค้ดใช้ทั้งคู่ และ `tsconfig.json` include `**/*.ts` → `next build` รัน type-check แล้วตก
 
@@ -139,14 +147,18 @@ PRD §5.4 กำหนดให้รายงานตามข้อ 11 เล
 | `/api/prices/meta`, `/api/prices/search` | 200 | ใช้งานได้ (ค้นหา ~350 มิลลิวินาทีเมื่อแคชเซิร์ฟเวอร์อุ่น) |
 | `/prices` โหลดครั้งแรก (แคชเย็น) | **28 วินาที** | ยังไม่ผ่าน KPI “< 3 วิ” เพราะ build เก่าไม่มี snapshot → ยังดึง สนค. สด |
 
-> ✅ **แก้แล้ว (10 พ.ย. 2569):** เพิ่ม `xlsx` + `vitest` + script `test` ใน `package.json` และ commit `package-lock.json` (ตรวจ `npm ci --dry-run` ผ่าน → Vercel ติดตั้งได้) · build ผ่าน ✅ · เทสต์ 39/39 ✅ · push ขึ้น `main` แล้ว → **ต้องตรวจ production ซ้ำหลัง Vercel build เสร็จ** ว่า `/rulesets` และ `/api/prices/snapshot/...` กลับมา และ `/prices` ลดจาก 28 วิเหลือ < 3 วิ
+> ✅ **แก้แล้ว (10 พ.ย. 2569):** เพิ่ม `xlsx` + `vitest` + script `test` ใน `package.json` และ commit `package-lock.json` (ตรวจ `npm ci --dry-run` ผ่าน → Vercel ติดตั้งได้) · build ผ่าน ✅ · เทสต์ 39/39 ✅ · push ขึ้น `main` (`6bec6ba`…`db463df`) แล้ว
+>
+> ✅ **ยืนยันหลัง deploy (ตรวจซ้ำเมื่อ 13:40 น. 10 พ.ย. 2569):** build ID เปลี่ยนจาก `52E2_tQWfAeIzQqXmIbb1` → `w8iXzuAceleX5_PVtr3tK` · `/rulesets` → **200** · `/api/prices/snapshot/10/2569` → **200** (1.65 MB, snapshot ล่าสุด `fetchedAt 2026-11-09T21:44:19Z`) · `/api/prices/refresh` → **200** (`persisted: "file (dev only)"` = ดึงสดได้แต่เขียนไฟล์ไม่ได้บน serverless ตามที่ออกแบบ) · หน้า `/prices` แสดงป้าย **“ข้อมูลสแนปชอตที่บันทึกเมื่อ …”** แล้ว
 
-### G4 — โค้ด local กับ GitHub ไม่ตรงกัน (drift) — ตรวจด้วย `git diff` แล้ว
+### G4 — โค้ด local กับ GitHub ไม่ตรงกัน (drift) — ✅ **ปิดแล้ว 10 พ.ย. 2569** (ตรวจด้วย `git diff` แล้ว)
 
-ติดตั้ง Git 2.56.0 + `git init` + `git fetch origin` + เชื่อม `main` เข้ากับ `origin/main` (@ `869c6f7c`) แล้ว → diff ได้แบบไม่แตะไฟล์งานเลย
-ผล: **25 ไฟล์ต่างกัน + 4 ไฟล์ที่มีแค่ฝั่ง local** (69 insertions / 3,540 deletions)
+> ภาพรวมรอบตรวจ: ติดตั้ง Git 2.56.0 + `git init` + `git fetch origin` + เชื่อม `main` เข้ากับ `origin/main` (@ `869c6f7c`) แล้ว → diff ได้แบบไม่แตะไฟล์งานเลย
+> ผลตอนตรวจ: **25 ไฟล์ต่างกัน + 4 ไฟล์ที่มีแค่ฝั่ง local** (69 insertions / 3,540 deletions) — ดูรายละเอียดด้านล่าง
+>
+> ✅ **สถานะหลังแก้:** commit 5 ก้อน (`6bec6ba`…`db463df`) push ขึ้น `main` แล้ว · `docs/xy.pdf` ย้ายไป `.gitignore` · `vercel.json` ถูกลบ (เหลือแนวทางเดียวคือ GitHub Actions ตาม F4.3) · `data/snapshots/` + `docs/reg-2569/` ดึงมาจาก `origin/main` ก่อน commit (ไม่ให้ข้อมูลเก่าทับของใหม่) → **working tree สะอาด และ `main == origin/main`**
 
-**ฝั่ง local มีของใหม่กว่า (ยังไม่เคย deploy)**
+**ฝั่ง local มีของใหม่กว่า (ตอนตรวจ — ยังไม่เคย deploy)**
 
 | ไฟล์ | ต่างอะไร | ผลกระทบ |
 |---|---|---|
@@ -169,33 +181,35 @@ PRD §5.4 กำหนดให้รายงานตามข้อ 11 เล
 
 **Snapshot: remote ใหม่กว่า local**
 
-`data/snapshots/*.json` ทั้ง 5 ไฟล์ต่างกันแค่ `fetchedAt` — remote = `2026-11-09T21:44:14Z` (รอบ GitHub Actions 21:00 UTC) · local = `2026-11-09T03:58:35Z` → **ระบบรีเฟรชอัตโนมัติทำงานถูกต้อง** แค่ local ยังไม่ได้ pull
+`data/snapshots/*.json` ทั้ง 5 ไฟล์ต่างกันแค่ `fetchedAt` — remote = `2026-11-09T21:44:14Z` (รอบ GitHub Actions 21:00 UTC) · local = `2026-11-09T03:58:35Z` → **ระบบรีเฟรชอัตโนมัติทำงานถูกต้อง** — ✅ ดึงมาทับ local แล้วก่อน commit
 
-> สถานะ repo หลังตั้งค่า: `main` เชื่อมกับ `origin/main` แล้ว (`git status` เห็น drift ชัดเจน) · ยัง **ไม่มี commit ใหม่** · `core.autocrlf=false` ตั้งรายโปรเจกต์ (ไม่แตะ global) เพื่อไม่ให้ LF→CRLF เพี้ยน
+> สถานะ repo ปัจจุบัน: `main` เชื่อมกับ `origin/main` · commit ล่าสุด `db463df` · **working tree สะอาด** · `core.autocrlf=false` ตั้งรายโปรเจกต์ (ไม่แตะ global) เพื่อไม่ให้ LF→CRLF เพี้ยน
 
 ---
 
 ## 5. สถานะ production จริง (วัดเมื่อ 10 พ.ย. 2569)
 
-| หน้า | สถานะ | เวลาตอบ | หมายเหตุ |
-|---|---|---|---|
-| `/` | 200 | 1.2 วิ | ปกติ |
-| `/prices` | 200 | **28.3 วิ (ครั้งแรก)** | ❌ ไม่ผ่าน KPI `< 3 วิ` — build เก่าไม่มี snapshot |
-| `/my-prices` | 200 | 0.4 วิ | ปกติ |
-| `/commercial`, `/cm`, `/guide`, `/privacy`, `/terms` | 200 | 0.3–0.6 วิ | ปกติ |
-| `/rulesets` | **404** | — | build เก่า |
-| `/api/prices/meta` | 200 | 1.5 วิ | รายชื่อจังหวัด/หมวดครบ |
-| `/api/prices/search` | 200 | ~0.35 วิ (แคชอุ่น) | ค้น “คอนกรีต” 214 / “เหล็ก” 698 / “สายไฟ” 162 รายการ — ตัวกรองชื่อ + รหัสสินค้าใช้ได้ |
-| `/api/prices/snapshot/10/2569` | **404** | — | build เก่า |
-| `/api/prices/refresh` | **404** | — | build เก่า |
+**หลัง deploy ใหม่ (13:40 น.) — คอลัมน์ซ้าย = ก่อน deploy · ขวา = หลัง deploy**
+
+| หน้า | ก่อน deploy | หลัง deploy | เวลาตอบ (หลัง) | หมายเหตุ |
+|---|---|---|---|---|
+| `/` | 200 | 200 | 1.2 วิ | ปกติ |
+| `/prices` | 200 (28.3 วิ) | 200 | **1.35 วิ** | ✅ ผ่าน KPI `< 3 วิ` — ใช้ snapshot แทนการดึง สนค. สด + แสดงป้ายอายุข้อมูล |
+| `/rulesets` | **404** | **200** | 1.25 วิ | ✅ หน้า registry กลับมา |
+| `/my-prices` | 200 | 200 | 0.4 วิ | ปกติ (IndexedDB) |
+| `/commercial`, `/cm`, `/guide`, `/privacy`, `/terms` | 200 | 200 | 0.3–0.6 วิ | ปกติ |
+| `/api/prices/meta` | 200 | 200 | 1.5 วิ | รายชื่อจังหวัด/หมวดครบ |
+| `/api/prices/search` | 200 | 200 | ~0.36 วิ | ค้น “คอนกรีต” 214 · “เหล็ก” 698 · “สายไฟ” 162 รายการ |
+| `/api/prices/snapshot/10/2569` | **404** | **200** | 1.56 วิ | ✅ snapshot 1.65 MB · `fetchedAt 2026-11-09T21:44:19Z` |
+| `/api/prices/refresh` | **404** | **200** | 6.6 วิ | ดึงสดจาก สนค. ได้ 6,435 แถว · `persisted: "file (dev only)"` (เขียนไฟล์ไม่ได้บน serverless — ถูกตามที่ออกแบบ) |
 
 **KPI (PRD §7)**
 
 | ตัวชี้วัด | สถานะปัจจุบัน | เป้าหมายหลังเฟส 4 | ผล |
 |---|---|---|---|
-| เวลาโหลด `/prices` ครั้งแรก (แคชเย็น) | 28 วิ (production) | < 3 วิ | ❌ ยังไม่ผ่าน (รอ deploy snapshot) |
+| เวลาโหลด `/prices` ครั้งแรก (แคชเย็น) | **1.35 วิ** (เคย 28 วิ) | < 3 วิ | ✅ ผ่าน |
 | เวลาสร้าง BOQ 10 รายการจากคลังราคา | ทำได้ (3 คลิก) | < 3 นาที | ✅ ผ่าน |
-| ความพร้อมใช้ของข้อมูลราคาเมื่อ สนค. ล่ม | มีโค้ด fallback + snapshot | ใช้ snapshot ต่อได้ 100% | 🟡 โค้ดพร้อม · ยังไม่ deploy |
+| ความพร้อมใช้ของข้อมูลราคาเมื่อ สนค. ล่ม | snapshot + ป้ายอายุข้อมูล + fallback | ใช้ snapshot ต่อได้ 100% | ✅ ผ่าน (deploy แล้ว) |
 | โปรเจกต์ที่สูญหายจากล้างเบราว์เซอร์ | ลดลงแล้ว (IndexedDB) | เหลือเฉพาะผู้ไม่ล็อกอิน (เฟส 5) | 🟡 รอเฟส 5 |
 
 ---
@@ -225,7 +239,7 @@ PRD §5.4 กำหนดให้รายงานตามข้อ 11 เล
 | **5** | ยืนยันตัวเลข ว 475–481 กับราชกิจจานุเบกษา/เล่มจริง + commit `pdfx/gen-w481.mjs` (หรือย้ายเข้า `scripts/`) | ทำให้ชุดข้อมูลทวนซ้ำ/ตรวจสอบได้ และถอดป้าย “ยังไม่ยืนยัน” | 0.5 วัน + เวลารอเล่มจริง |
 | **6** | สร้างชุดข้อมูล ruleset ว 480 (ค่าแรงถอดแบบ) → แทนช่อง “ค่าแรง 30–37%” เดิม | PRD §5.5 ลำดับถัดไปหลัง ว 481 | 1 วัน |
 | **7** | เพิ่มเทสต์: round-trip ของ snapshot, golden test ของเอกสาร 9 ชิ้น, เทสต์ `selectFactorFTable` | ลดความเสี่ยงสูตร/เอกสาร | 0.5 วัน |
-| **8** | `git pull` เพื่อดึง snapshot ล่าสุด + `docs/reg-2569/` กลับมา และตัดสินใจ `vercel.json` (เก็บ/ลบ) ให้สอดคล้องกับแนวทาง F4.3 | ลดความสับสน “ของที่ deploy อยู่” · ปัจจุบัน git พร้อมแล้ว | 15 นาที |
+| **8** | ✅ **เสร็จแล้ว 10 พ.ย. 2569** — ดึง snapshot ล่าสุด + `docs/reg-2569/` กลับมา (checkout จาก `origin/main`) · ตัดสินใจ `vercel.json` = **ลบ** (ให้เหลือแนวทางเดียว GitHub Actions ตาม F4.3, สำรองไว้ที่ `temp/opencode/vercel.json.bak`) · `docs/xy.pdf` → `.gitignore` | ลดความสับสน “ของที่ deploy อยู่” · ปัจจุบัน `main == origin/main` และ working tree สะอาด | เสร็จ |
 | **9** | เฟส 5 (Supabase auth/sync/share) → เฟส 6 (ดัชนี K/แจ้งเตือน) | ตามลำดับ PRD · ทำหลัง 1–8 | 6–9 วัน |
 
 ---
@@ -233,14 +247,14 @@ PRD §5.4 กำหนดให้รายงานตามข้อ 11 เล
 ## 8. ภาคผนวก — วิธีตรวจสอบและข้อจำกัดของรายงานนี้
 
 **ตรวจสอบด้วยอะไร**
-- โค้ด: อ่านไฟล์จริงทั้งหมดใน `app/`, `lib/`, `scripts/`, `.github/`, `data/` (local) + เทียบกับ GitHub ผ่าน MCP (`aiupitisi-prog/iserv-boq`, main @ `869c6f7c`, 30 commits, 0 PR, 0 issue)
+- โค้ด: อ่านไฟล์จริงทั้งหมดใน `app/`, `lib/`, `scripts/`, `.github/`, `data/` (local) + เทียบกับ GitHub ผ่าน MCP (`aiupitisi-prog/iserv-boq`, main ณ เวลาตรวจ @ `869c6f7c`, 30 commits, 0 PR, 0 issue)
 - **Git (ติดตั้งใหม่ 10 พ.ย. 2569):** `git init` + `git remote add origin` + `git fetch origin` + เชื่อม `main` เข้ากับ `origin/main` → `git diff` ได้ drift จริง 25 ไฟล์ (ตารางใน §G4) โดยไม่แก้ไฟล์งาน
-- Build/เทสต์: `npm.cmd run build` ✅ · `npm.cmd test` ✅ (39/39)
-- Production: ยิงจริงทุก route ของ interest + วัดเวลาตอบ
+- Build/เทสต์: `npm.cmd run build` ✅ · `npm.cmd test` ✅ (39/39) · `npm.cmd ci --dry-run` ✅ (lockfile sync)
+- Production: ยิงจริงทุก route ของ interest + วัดเวลาตอบ — **ทำ 2 รอบ** (ก่อน deploy และหลัง deploy) แล้ว
 - TS: ทดสอบ `TS2307` ใน temp dir เพื่อยืนยันสาเหตุที่ build ตก
 
 **ข้อจำกัด**
-- รอบนี้ commit + push ขึ้น `main` แล้ว (10 พ.ย. 2569) แต่ **ยังไม่ได้ตรวจ production หลัง Vercel build** — ต้องยิงซ้ำหลัง build เสร็จ (~1–2 นาที) ว่า `/rulesets` · `/api/prices/snapshot/...` กลับมา และ `/prices` เร็วขึ้น
+- ตรวจ production หลัง Vercel build แล้ว (13:40 น. 10 พ.ย. 2569) — เทียบ build ID เปลี่ยนจริง และ route ที่เคย 404 กลับมาเป็น 200 ทั้งหมด แต่ยังไม่ได้ตรวจการพิมพ์เอกสาร 9 ชิ้นจากเบราว์เซอร์จริง
 - ไม่ได้เปิดหน้าแอปด้วยเบราว์เซอร์จริง (ไม่ได้ตรวจการพิมพ์ A4 ด้วยตา/กระดาษจริง)
 - ไม่ได้ยืนยันกับราชกิจจานุเบกษา — ตัวเลขทุกตัวยังเป็น “ยืนยันกับต้นฉบับทางการ”
 - ค่าเวลาที่วัดเป็นครั้งเดียวจากเครือข่ายนี้ ไม่ใช่ค่าเฉลี่ย
