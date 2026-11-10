@@ -1,0 +1,54 @@
+page 1 | pct[] | numpairs=0 | rows=0
+page 2 | pct[] | numpairs=0 | rows=0
+page 3 | pct[] | numpairs=0 | rows=0
+page 4 | pct[0 %,6 %,7 %] | numpairs=48 | rows=0
+page 5 | pct[0 %,6 %,5 %,7 %] | numpairs=48 | rows=0
+page 6 | pct[0 %,6 %,10 %,7 %] | numpairs=48 | rows=0
+page 7 | pct[5 %,6 %,0 %,7 %] | numpairs=48 | rows=0
+page 8 | pct[5 %,6 %,7 %] | numpairs=48 | rows=0
+page 9 | pct[5 %,6 %,10 %,7 %] | numpairs=48 | rows=0
+page 10 | pct[10 %,6 %,0 %,7 %] | numpairs=48 | rows=0
+page 11 | pct[10 %,6 %,5 %,7 %] | numpairs=48 | rows=0
+page 12 | pct[10 %,6 %,7 %] | numpairs=48 | rows=0
+page 13 | pct[15 %,6 %,0 %,7 %] | numpairs=48 | rows=0
+page 14 | pct[15 %,6 %,5 %,7 %] | numpairs=48 | rows=0
+page 15 | pct[15 %,6 %,10 %,7 %] | numpairs=48 | rows=0
+page 16 | pct[] | numpairs=0 | rows=0
+page 17 | pct[0 %,6 %,7 %] | numpairs=144 | rows=0
+page 18 | pct[0 %,6 %,5 %,7 %] | numpairs=144 | rows=0
+page 19 | pct[0 %,6 %,10 %,7 %] | numpairs=144 | rows=0
+page 20 | pct[5 %,6 %,0 %,7 %] | numpairs=144 | rows=0
+page 21 | pct[5 %,6 %,7 %] | numpairs=144 | rows=0
+page 22 | pct[5 %,6 %,10 %,7 %] | numpairs=144 | rows=0
+page 23 | pct[10 %,6 %,0 %,7 %] | numpairs=144 | rows=18
+page 24 | pct[10 %,6 %,5 %,7 %] | numpairs=144 | rows=0
+page 25 | pct[10 %,6 %,7 %] | numpairs=144 | rows=0
+page 26 | pct[15 %,6 %,0 %,7 %] | numpairs=144 | rows=0
+page 27 | pct[15 %,6 %,5 %,7 %] | numpairs=144 | rows=0
+page 28 | pct[15 %,6 %,10 %,7 %] | numpairs=144 | rows=0
+page 29 | pct[] | numpairs=0 | rows=0
+page 30 | pct[0 %,6 %,7 %] | numpairs=80 | rows=0
+page 31 | pct[0 %,6 %,5 %,7 %] | numpairs=80 | rows=0
+page 32 | pct[0 %,6 %,10 %,7 %] | numpairs=80 | rows=0
+page 33 | pct[5 %,6 %,0 %,7 %] | numpairs=80 | rows=0
+page 34 | pct[5 %,6 %,7 %] | numpairs=80 | rows=0
+page 35 | pct[5 %,6 %,10 %,7 %] | numpairs=80 | rows=0
+page 36 | pct[10 %,6 %,0 %,7 %] | numpairs=80 | rows=0
+page 37 | pct[10 %,6 %,5 %,7 %] | numpairs=80 | rows=0
+page 38 | pct[10 %,6 %,7 %] | numpairs=80 | rows=0
+page 39 | pct[15 %,6 %,0 %,7 %] | numpairs=80 | rows=0
+page 40 | pct[15 %,6 %,5 %,7 %] | numpairs=80 | rows=0
+page 41 | pct[15 %,6 %,10 %,7 %] | numpairs=80 | rows=0
+page 42 | pct[] | numpairs=0 | rows=0
+page 43 | pct[0 %,6 %,7 %] | numpairs=160 | rows=0
+page 44 | pct[0 %,6 %,5 %,7 %] | numpairs=160 | rows=0
+page 45 | pct[0 %,6 %,10 %,7 %] | numpairs=160 | rows=0
+page 46 | pct[5 %,6 %,0 %,7 %] | numpairs=160 | rows=0
+page 47 | pct[5 %,6 %,7 %] | numpairs=160 | rows=0
+page 48 | pct[5 %,6 %,10 %,7 %] | numpairs=160 | rows=0
+page 49 | pct[10 %,6 %,0 %,7 %] | numpairs=160 | rows=0
+page 50 | pct[10 %,6 %,5 %,7 %] | numpairs=160 | rows=0
+page 51 | pct[10 %,6 %,7 %] | numpairs=160 | rows=0
+page 52 | pct[15 %,6 %,0 %,7 %] | numpairs=160 | rows=0
+page 53 | pct[15 %,6 %,5 %,7 %] | numpairs=160 | rows=0
+page 54 | pct[15 %,6 %,10 %,7 %] | numpairs=160 | rows=0
