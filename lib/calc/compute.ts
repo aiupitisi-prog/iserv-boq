@@ -3,7 +3,9 @@
 // ลำดับบังคับตาม skill thai-govt-base-price-rules:
 //   1) รายการ → รวมเงินต่อรายการ (ปริมาณ × ราคา/หน่วย)
 //   2) รวม "ต้นทุนโดยตรงของโครงการ" (A) — แยก ก. ค่าวัสดุ / ข. ค่าแรง — ครุภัณฑ์ห้ามเข้าฐานนี้
-//   3) Factor F จากตารางใน ruleset เท่านั้น (ขอบตาราง = ค่าตรง, ในช่วง = interpolate, นอกช่วง = throw)
+//   3) Factor F จากตารางใน ruleset เท่านั้น (ประกาศ ว 481 = ชุด 48 ตาราง เลือกตามเงื่อนไขสัญญา project.factorFCond
+//      ผ่าน selectFactorFTable; ชุดกฎเก่าใช้ตารางเดี่ยว ruleset.factorF) — ขอบตาราง = ค่าตรง, ในช่วง = interpolate,
+//      ช่วงปลายเปิด (open) = ค่าคงที่, นอกช่วง = throw
 //   4) ปร.1(ก) = A × F
 //   5) ครุภัณฑ์: แยกฐาน + ค่าดำเนินงานครุภัณฑ์เป็นบรรทัดแยก
 //   6) เงินเผื่อจำเป็น / ค่าดำเนินงาน — เฉพาะเมื่อ ruleset ระบุอัตรา (ไม่มีค่าจากความจำ)
@@ -14,7 +16,8 @@
 // - ข้อสมมติที่ยืนยันจากเอกสารไม่ได้ → เขียน "unverified" ใน warnings เสมอ
 
 import type { BoqItem, BoqProject } from "../boq";
-import type { Ruleset } from "../ruleset";
+import type { FactorFTable, Ruleset } from "../ruleset";
+import { selectFactorFTable } from "../ruleset";
 import { CalcError, lookupFactorF } from "./factorf";
 import { formatSatang, mulQty, pctOf, sumSatang, type Satang } from "./money";
 
@@ -119,30 +122,86 @@ export function computeGovBOQ(project: BoqProject, ruleset: Ruleset | undefined 
   });
 
   // 3)–4) Factor F → ปร.1(ก)
+  // ประกาศ ว 481 (ลง 26 มิ.ย. 2569): ตารางแยกตาม ประเภทงาน × (ค่าจ้างล่วงหน้า % × เงินประกันผลงาน %) = 48 ตาราง —
+  // เครื่องยนต์เลือกตารางจาก ruleset.factorFTables ด้วย project.factorFCond เสมอเมื่อชุดกฎมีชุดตาราง;
+  // ชุดกฎที่ให้ตารางเดี่ยว (ruleset.factorF) ใช้ตรง ๆ (backward-compat กับเฟส 2)
   let factorF: number | null = null;
   let afterFactor = directCost;
-  if (ruleset?.factorF) {
-    // OUT_OF_TABLE จาก lookupFactorF จะ propagate ขึ้นไปทันที = หยุดคำนวณ (ห้าม extrapolate; 
-    // ผู้เรียกระดับ UI/docs ใช้ computeGovBOQSafe ถ้าอยากแสดงแจ้งเตือนแทนการ throw)
-    const r = lookupFactorF(directCost, ruleset.factorF);
-    factorF = r.factor;
-    afterFactor = Math.round(directCost * r.factor); // ปัดเศษ half-up เป็นสตางค์
-    steps.push({
-      label: `Factor F = ${r.factor.toFixed(6)}${r.interpolated ? ` (interpolate ช่วงต้นทุน [${r.row.B}, ${r.row.C}] ล้านบาท)` : " (ขอบตารางพอดี — ใช้ค่าตรง)"}`,
-      formula: r.interpolated ? "F = D − (D − E) × (A − B) / (C − B)" : undefined,
-      satang: afterFactor,
-      kind: "factor",
-      notes: [
-        `A = ${formatSatang(directCost)} บาท (${(directCost / 1e8).toLocaleString("th-TH", { maximumFractionDigits: 4 })} ล้านบาท)`,
-        `พารามิเตอร์ตาราง: ทดรองจ่าย ${ruleset.factorF.advancePct}% · ประกันผลงาน ${ruleset.factorF.retentionPct}% · ดอกเบี้ย ${ruleset.factorF.interestPct}% · VAT ${ruleset.factorF.vatPct}%`,
-        "ปัดเศษ half-up เป็นสตางค์ (ค่าเริ่มต้นระบบ — ตรวจกับหลักเกณฑ์ที่ใช้บังคับ)",
-        `ที่มาตาราง: ${ruleset.sourceDoc}`,
-      ],
-    });
+  const cond = project.factorFCond;
+  let table: FactorFTable | null = null;
+  if (ruleset?.factorFTables && ruleset.factorFTables.length > 0) {
+    if (!cond) {
+      warnings.push(
+        "ชุดกฎนี้มีตาราง Factor F แบบแยกตามเงื่อนไขสัญญา (ประเภทงาน × ค่าจ้างล่วงหน้า × เงินประกันผลงาน) แต่โปรเจกต์ยังไม่ระบุเงื่อนไข (factorFCond) — ยังไม่ปรับ Factor F (F = 1); ระบุเงื่อนไขในหน้าโครงการก่อน",
+      );
+    } else {
+      table = selectFactorFTable(ruleset.factorFTables, cond);
+      if (!table) {
+        warnings.push(
+          `ไม่พบตาราง Factor F ตามเงื่อนไขสัญญา (ประเภทงาน ${cond.workType} · ทดรองจ่าย ${cond.advancePct}% · ประกันผลงาน ${cond.retentionPct}%) ในชุดกฎ — ยังไม่ปรับ Factor F (F = 1); ตรวจเงื่อนไขหรือชุดกฎที่ pin ไว้`,
+        );
+      }
+    }
+  } else if (ruleset?.factorF) {
+    table = ruleset.factorF;
   } else {
     warnings.push(
       "ยังไม่มีตาราง Factor F ในชุดกฎที่ pin ไว้ — คำนวณแบบไม่ปรับ (F = 1); นำเข้าตารางจากเอกสารทางการที่หน้า ชุดกฎราคากลาง",
     );
+  }
+  if (table) {
+    // OUT_OF_TABLE จาก lookupFactorF จะ propagate ขึ้นไปทันที = หยุดคำนวณ (ห้าม extrapolate;
+    // ผู้เรียกระดับ UI/docs ใช้ computeGovBOQSafe ถ้าอยากแสดงแจ้งเตือนแทนการ throw)
+    const r = lookupFactorF(directCost, table);
+    // เลือกคอลัมน์ที่ใช้จริงตามเงื่อนไขสัญญา — ขาดคอลัมน์ → เตือนแล้วใช้คอลัมน์ปกติ (รวม VAT)
+    let applied = r.factor;
+    let appliedLabel = "Factor F";
+    const colNotes: string[] = [];
+    if (cond?.noVat) {
+      if (r.noVat !== undefined) {
+        applied = r.noVat;
+        appliedLabel = 'Factor F "รวมในรูป Factor" (ไม่รวม VAT — หมายเหตุ 2 ของประกาศ)';
+      } else {
+        colNotes.push('เงื่อนไขระบุไม่ชำระ VAT (noVat) แต่ตารางที่เลือกไม่มีคอลัมน์ "รวมในรูป Factor" — ใช้คอลัมน์ Factor F ปกติ (รวม VAT) แทน');
+      }
+    }
+    if (cond?.rain) {
+      const rainVal = cond.rain === 1 ? r.rain1 : r.rain2;
+      if (rainVal !== undefined) {
+        applied = rainVal;
+        appliedLabel = `Factor F ฝนชุก ${cond.rain}`;
+      } else {
+        colNotes.push(`เงื่อนไขระบุพื้นที่ฝนชุก ${cond.rain} แต่ตารางที่เลือกไม่มีคอลัมน์ Factor F ฝนชุก — ใช้คอลัมน์ Factor F ปกติ (รวม VAT) แทน`);
+      }
+    }
+    if (cond?.noVat && cond?.rain) {
+      colNotes.push(
+        "เงื่อนไขระบุทั้ง noVat และฝนชุก — ตารางของประกาศไม่มีคอลัมน์ noVat แยกตามฝนชุก จึงใช้คอลัมน์ฝนชุก (รวม VAT) — unverified: ตรวจยืนยันกับเอกสารก่อนใช้จริง",
+      );
+    }
+    factorF = applied;
+    afterFactor = Math.round(directCost * applied); // ปัดเศษ half-up เป็นสตางค์
+    const openLabel = r.row.open
+      ? " (ช่วงปลายเปิด — ค่าคงที่ตามประกาศ)"
+      : r.interpolated
+        ? ` (interpolate ช่วงต้นทุน [${r.row.B}, ${r.row.C}] ล้านบาท)`
+        : r.row.D === r.row.E
+          ? " (ช่วงค่าคงที่)"
+          : " (ขอบตารางพอดี — ใช้ค่าตรง)";
+    steps.push({
+      label: `${appliedLabel} = ${applied.toFixed(6)}${openLabel}`,
+      formula: !r.row.open && r.interpolated ? "F = D − (D − E) × (A − B) / (C − B)" : undefined,
+      satang: afterFactor,
+      kind: "factor",
+      notes: [
+        `A = ${formatSatang(directCost)} บาท (${(directCost / 1e8).toLocaleString("th-TH", { maximumFractionDigits: 4 })} ล้านบาท)`,
+        `ตารางที่ใช้: ${table.workType ? `ประเภทงาน ${table.workType} · ` : ""}ทดรองจ่าย ${table.advancePct}% · ประกันผลงาน ${table.retentionPct}% · ดอกเบี้ย ${table.interestPct}% · VAT ${table.vatPct}%`,
+        "ปัดเศษ half-up เป็นสตางค์ (ค่าเริ่มต้นระบบ — ตรวจกับหลักเกณฑ์ที่ใช้บังคับ)",
+        `ที่มาตาราง: ${ruleset?.sourceDoc}`,
+        ...colNotes,
+        ...(r.anomalyNote ? [`แถวตารางมีหมายเหตุเบี่ยงเบนจากต้นฉบับ: ${r.anomalyNote}`] : []),
+      ],
+    });
   }
 
   // 6) เงินเผื่อจำเป็น / ค่าดำเนินงาน — เฉพาะเมื่อ ruleset ระบุอัตรา (ห้ามเดาอัตรา)
