@@ -58,7 +58,8 @@ export type CalcResult = {
 
 // จัดหมวดแถวเป็น ก./ข. — ใช้สแปลิตที่ผู้ใช้ใส่เองก่อน แล้วตามหมวดของแหล่งราคา
 // (ราคา สนค. = วัสดุ; คลังของฉันหมวด "ค่าแรง" = แรงงาน; ที่เหลือถือวัสดุ + แจ้งเตือนให้แยกใน editor)
-function splitItem(it: BoqItem): { mat: Satang | null; lab: Satang | null; needsSplit: boolean } {
+// export เพื่อให้ lib/report2569 (ชุดเอกสาร 9 ชิ้น) ใช้เงื่อนไขเดียวกันเป๊ะ — ห้ามเขียนสแปลิตซ้ำ
+export function splitItem(it: BoqItem): { mat: Satang | null; lab: Satang | null; needsSplit: boolean } {
   const total = mulQty(it.qty, it.price);
   if (it.matPrice !== undefined && it.laborPrice !== undefined) {
     return { mat: mulQty(it.qty, it.matPrice), lab: mulQty(it.qty, it.laborPrice), needsSplit: false };
