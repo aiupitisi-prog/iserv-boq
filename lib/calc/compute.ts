@@ -175,9 +175,10 @@ export function computeGovBOQ(project: BoqProject, ruleset: Ruleset | undefined 
       }
     }
     if (cond?.noVat && cond?.rain) {
-      colNotes.push(
-        "เงื่อนไขระบุทั้ง noVat และฝนชุก — ตารางของประกาศไม่มีคอลัมน์ noVat แยกตามฝนชุก จึงใช้คอลัมน์ฝนชุก (รวม VAT) — unverified: ตรวจยืนยันกับเอกสารก่อนใช้จริง",
-      );
+      const bothMsg =
+        "เงื่อนไขระบุทั้งไม่ชำระ VAT และฝนชุก — ตารางของประกาศไม่มีคอลัมน์ “รวมในรูป Factor” แยกตามฝนชุก จึงใช้คอลัมน์ฝนชุก (รวม VAT) — unverified: ตรวจยืนยันกับเอกสารก่อนใช้จริง";
+      colNotes.push(bothMsg);
+      warnings.push(bothMsg); // ยกขึ้นกล่องเตือน (นอกจาก step note) — ค่าที่ใช้วิ่งเข้ายอดรวมจริง ผู้ใช้ต้องเห็นเด่น ๆ
     }
     factorF = applied;
     afterFactor = Math.round(directCost * applied); // ปัดเศษ half-up เป็นสตางค์

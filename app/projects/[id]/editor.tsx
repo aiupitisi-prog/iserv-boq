@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BoqItem, BoqProject, PriceSource, itemTotal, newId, proposalSummary, projectTotal, sectionTotals, thb } from "@/lib/boq";
+import { BoqItem, BoqProject, FactorFCond, PriceSource, itemTotal, newId, proposalSummary, projectTotal, sectionTotals, thb } from "@/lib/boq";
 import { loadProjects, saveProject } from "@/lib/storage";
 import { loadPricelist, PrivatePrice } from "@/lib/pricelist";
-import { loadRulesets, Ruleset, rulesetStatus } from "@/lib/ruleset";
+import { WorkTypeCode, loadRulesets, Ruleset, rulesetStatus, selectFactorFTable, WORK_TYPE_LABELS } from "@/lib/ruleset";
 import { CalcResult, computeGovBOQ, computeGovBOQSafe } from "@/lib/calc/compute";
 import { satangToBaht } from "@/lib/calc/money";
 import { downloadBlob, EXPORT_MIME, safeFilename, toCsv, toXlsxArray } from "@/lib/export";
@@ -262,6 +262,37 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
     URL.revokeObjectURL(url);
   }
 
+  // ตั้งเงื่อนไขเลือกตาราง Factor F — patch ทีละฟิลด์; ฟิลด์ที่ยังไม่ระบุเติมค่า default แรกของชุดตารางให้เสมอ
+  // (ไม่เก็บเงื่อนไขครึ่ง ๆ กลาง ๆ ไม่งั้นเครื่องยนต์จะ "หาตารางไม่เจอ" และเตือนผิดความหมาย)
+  // clearNoVat / clearRain = ลบฟิลด์ optional ออก (แยกจากการ "ตั้งเป็น undefined" ซึ่งจะ fallback ไปค่าเดิม)
+  function setCondFields(patch: Partial<FactorFCond> & { clearNoVat?: boolean; clearRain?: boolean }) {
+    if (!project) return;
+    const wt = patch.workType ?? cond?.workType ?? condWorkTypes[0];
+    if (!wt) {
+      update({ ...project, factorFCond: undefined });
+      return;
+    }
+    const tablesOfWt = tableSet.filter((t) => t.workType === wt);
+    const adv = patch.advancePct ?? cond?.advancePct ?? tablesOfWt.map((t) => t.advancePct).sort((a, b) => a - b)[0] ?? 0;
+    const ret = patch.retentionPct ?? cond?.retentionPct ?? tablesOfWt.filter((t) => t.advancePct === adv).map((t) => t.retentionPct).sort((a, b) => a - b)[0] ?? 0;
+    const next: FactorFCond = { workType: wt, advancePct: adv, retentionPct: ret };
+    if (patch.clearNoVat) {
+      // ล้าง noVat
+    } else if (patch.noVat !== undefined || cond?.noVat !== undefined) {
+      next.noVat = patch.noVat ?? cond?.noVat;
+    }
+    // สลับประเภทงานไปตารางที่ไม่มีคอลัมน์ฝนชุก → เคลียร์ rain ทิ้ง (เก็บค้างไว้จะหลอกว่า "ใช้ฝนชุกอยู่")
+    const newHit = tablesOfWt.find((t) => t.advancePct === adv && t.retentionPct === ret);
+    const newWtHasRain = newHit?.rows.some((r) => r.D2 !== undefined && r.D3 !== undefined) ?? false;
+    const switchedToRainless = !!patch.workType && patch.workType !== cond?.workType && !newWtHasRain;
+    if (patch.clearRain || switchedToRainless) {
+      // ล้าง rain — ผู้ใช้เลือก "ไม่ระบุ" หรือสลับไปตารางที่ไม่มีคอลัมน์ฝนชุก
+    } else if (patch.rain !== undefined || cond?.rain !== undefined) {
+      next.rain = patch.rain ?? cond?.rain;
+    }
+    update({ ...project, factorFCond: next });
+  }
+
   if (!loaded) {
     return <div className="mx-auto max-w-6xl px-4 py-10 text-slate-500">กำลังโหลด…</div>;
   }
@@ -282,6 +313,24 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
   const pinnedRs = rulesets.find((r) => r.id === project.rulesetId);
   const pinnedStatus = rulesetStatus(pinnedRs);
   const gov = !isPrivate ? safeCalc(project, pinnedRs) : null; // สรุปราคากลางสดจากเครื่องยนต์ (โหมดราชการ)
+
+  // เงื่อนไขการใช้ตาราง Factor F (ประกาศ ว 481 — ชุดตารางแยกตามสัญญา) —
+  // ตัวเลือกลากจากชุดตารางของชุดกฎที่ pin เท่านั้น (ไม่เดา/ไม่ hardcode) — เครื่องยนต์เลือกตารางจากค่านี้
+  const tableSet = pinnedRs?.factorFTables ?? [];
+  const cond = project.factorFCond;
+  const condWorkTypes = [...new Set(tableSet.map((t) => t.workType))].filter((w): w is WorkTypeCode => w !== undefined).sort();
+  const condAdvanceOptions = [...new Set(tableSet.filter((t) => !cond?.workType || t.workType === cond.workType).map((t) => t.advancePct))].sort((a, b) => a - b);
+  const condRetentionOptions = [
+    ...new Set(
+      tableSet
+        .filter((t) => (!cond?.workType || t.workType === cond.workType) && (cond?.advancePct === undefined || t.advancePct === cond.advancePct))
+        .map((t) => t.retentionPct),
+    ),
+  ].sort((a, b) => a - b);
+  const condHit = cond ? selectFactorFTable(tableSet, cond) : null; // null = ยังไม่ครบ/ไม่พบตาราง
+  const condHasRainCols = condHit?.rows.some((r) => r.D2 !== undefined && r.D3 !== undefined) ?? false;
+  const condHasNoVatCols = condHit?.rows.some((r) => r.F !== undefined && r.G !== undefined) ?? false;
+  const hasTableSet = tableSet.length > 0;
 
   // จับกลุ่มรายการตามหมวดงาน (F3.1) — ตามลำดับที่พบแรก; ยุบ/ขยายได้ (ตอนพิมพ์ขยายเสมอ — CSS)
   const groups: { section: string; items: { it: BoqItem; index: number }[] }[] = [];
@@ -362,6 +411,83 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
               ⚠ ชุดกฎที่ pin ไว้ถูกลบออกจากอุปกรณ์นี้แล้ว — เลือกชุดกฎใหม่หรือนำเข้าอีกครั้งที่{" "}
               <a href="/rulesets" className="underline">ชุดกฎราคากลาง</a>
             </p>
+          )}
+
+          {/* เงื่อนไขการใช้ตาราง Factor F — ประกาศ ว 481 แยกตารางตามสัญญา (ต้องระบุให้เครื่องยนต์เลือกได้) */}
+          {hasTableSet && (
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <span className="font-medium text-blue-950">เงื่อนไขการใช้ตาราง Factor F ตามสัญญา:</span>
+                <select
+                  value={cond?.workType ?? ""}
+                  onChange={(e) => (e.target.value ? setCondFields({ workType: e.target.value as WorkTypeCode }) : update({ ...project, factorFCond: undefined }))}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-800"
+                >
+                  <option value="">— ประเภทงาน —</option>
+                  {condWorkTypes.map((wt) => (
+                    <option key={wt} value={wt}>{WORK_TYPE_LABELS[wt]}</option>
+                  ))}
+                </select>
+                <select
+                  value={cond?.advancePct !== undefined ? String(cond.advancePct) : ""}
+                  onChange={(e) => e.target.value !== "" && setCondFields({ advancePct: Number(e.target.value) })}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-800"
+                >
+                  <option value="">— ค่าจ้างล่วงหน้า (%) —</option>
+                  {condAdvanceOptions.map((v) => (
+                    <option key={v} value={v}>{v}%</option>
+                  ))}
+                </select>
+                <select
+                  value={cond?.retentionPct !== undefined ? String(cond.retentionPct) : ""}
+                  onChange={(e) => e.target.value !== "" && setCondFields({ retentionPct: Number(e.target.value) })}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-800"
+                >
+                  <option value="">— เงินประกันผลงาน (%) —</option>
+                  {condRetentionOptions.map((v) => (
+                    <option key={v} value={v}>{v}%</option>
+                  ))}
+                </select>
+                <label className="flex items-center gap-1.5 text-xs text-slate-600" title="หมายเหตุ 2 ของประกาศ ว 481 — งานที่ไม่ต้องชำระ VAT ให้ใช้คอลัมน์ “รวมในรูป Factor”">
+                  <input
+                    type="checkbox"
+                    checked={cond?.noVat === true}
+                    onChange={(e) => (e.target.checked ? setCondFields({ noVat: true }) : setCondFields({ clearNoVat: true }))}
+                    className="h-3.5 w-3.5"
+                  />
+                  ไม่ชำระ VAT (ใช้คอลัมน์ “รวมในรูป Factor”)
+                </label>
+                <select
+                  value={cond?.rain !== undefined ? String(cond.rain) : ""}
+                  onChange={(e) => (e.target.value ? setCondFields({ rain: Number(e.target.value) as 1 | 2 }) : setCondFields({ clearRain: true }))}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-800"
+                  disabled={!condHasRainCols}
+                  title={condHasRainCols ? "พื้นที่ฝนชุก — ใช้คอลัมน์ Factor F ฝนชุกของตาราง" : "ตารางตามเงื่อนไขนี้ไม่มีคอลัมน์ฝนชุก (มีเฉพาะงานทาง/ชลประทาน)"}
+                >
+                  <option value="">— พื้นที่ฝนชุก —</option>
+                  <option value="1">ฝนชุก 1</option>
+                  <option value="2">ฝนชุก 2</option>
+                </select>
+              </div>
+
+              {condHit ? (
+                <p className="mt-2 text-xs text-green-800">
+                  ✓ ตารางที่จะใช้: {condHit.workType ? WORK_TYPE_LABELS[condHit.workType] : "—"} · ทดรองจ่าย {condHit.advancePct}% · ประกันผลงาน {condHit.retentionPct}% · ดอกเบี้ย {condHit.interestPct}% · VAT {condHit.vatPct}% ({condHit.rows.length} ช่วง)
+                  {cond?.noVat === true && " · ใช้คอลัมน์ “รวมในรูป Factor” (ไม่รวม VAT)"}
+                  {cond?.noVat === true && !condHasNoVatCols && " · ⚠ ตารางนี้ไม่มีคอลัมน์ “รวมในรูป Factor” — เครื่องยนต์จะใช้คอลัมน์ปกติ (รวม VAT) และเตือนใน trace"}
+                  {cond?.rain !== undefined && !condHasRainCols && " · ⚠ ตารางนี้ไม่มีคอลัมน์ฝนชุก — เครื่องยนต์จะใช้คอลัมน์ปกติและเตือนใน trace"}
+                </p>
+              ) : cond ? (
+                <p className="mt-2 text-xs text-amber-900">⚠ ไม่พบตารางตามเงื่อนไขนี้ในชุดกฎ — เครื่องยนต์ยังไม่ปรับ Factor F (F = 1) ตรวจเงื่อนไขหรือชุดกฎที่ pin</p>
+              ) : (
+                <p className="mt-2 text-xs text-slate-500">ชุดกฎนี้แยกตารางตามเงื่อนไขสัญญา (4 ประเภทงาน × คู่อัตรา) — ระบุเงื่อนไขให้ครบเพื่อเลือกตาราง · ไม่ระบุ = ไม่ปรับ Factor F (F = 1)</p>
+              )}
+              {cond?.noVat === true && (
+                <p className="mt-1.5 text-xs text-amber-900">
+                  ⚠ หากเป็น<strong>ทุนผสม</strong> (เงินกู้ + งบประมาณต้นสังกัด) เล่ม 2 ข้อ 9.3 ให้คิด Factor F ถ่วงน้ำหนักตามสัดส่วนเงินทุน — ระบบยังไม่รองรับการถ่วงน้ำหนัก ให้คำนวณเทียบเองและบันทึกหมายเหตุในเอกสาร
+                </p>
+              )}
+            </div>
           )}
         </div>
       )}

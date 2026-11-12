@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FactorFTable, loadRulesets, rulesetChecksum, Ruleset, saveRulesets, validateFactorFTable } from "@/lib/ruleset";
+import type { WorkTypeCode } from "@/lib/ruleset";
+import { loadRulesets, Ruleset, saveRulesets, WORK_TYPE_LABELS } from "@/lib/ruleset";
+import { prepareImport } from "@/lib/ruleset-import";
 
 // หน้าจัดการชุดกฎราคากลาง (F3.3 ส่วนประกอบเครื่องยนต์)
 // กฎเหล็ก: ตัวเลขกฎหมายเข้าระบบได้จากเอกสารทางการเท่านั้น — ระบบตรวจเฉพาะ "โครงสร้าง/ความสมเหตุสมผลของตาราง"
@@ -24,83 +26,35 @@ const SAMPLE_JSON = `{
       { "B": 5, "C": 30, "D": 1.1300, "E": 1.0300 }
     ]
   },
+  "factorFTables": [
+    {
+      "workType": "building",
+      "advancePct": 0,
+      "retentionPct": 0,
+      "interestPct": 6,
+      "vatPct": 7,
+      "rows": [
+        { "B": 0, "C": 5, "D": 1.1500, "E": 1.0500, "F": 1.0748, "G": 0.9813 },
+        { "B": 5, "C": 30, "D": 1.1300, "E": 1.0300, "F": 1.0561, "G": 0.9626 }
+      ]
+    }
+  ],
   "labor": { "minPct": 30, "maxPct": 37 },
   "contingencyPct": 5,
   "swcPct": 5,
   "durableHandlingPct": 12,
-  "notices": ["ตัวเลขทั้งหมดในตัวอย่างนี้เป็นข้อมูลสมมุติ ไม่ใช่ตัวเลขกฎหมาย"]
+  "notices": [
+    "ตัวเลขทั้งหมดในตัวอย่างนี้เป็นข้อมูลสมมุติ ไม่ใช่ตัวเลขกฎหมาย",
+    "factorFTables แสดงโครงสร้างแบบชุดตารางตามประกาศ ว 481 — ชุดจริงมี 48 ตาราง (4 ประเภทงาน × 12 คู่อัตรา) ใช้ปุ่มติดตั้งชุด ว 481 ด้านล่าง"
+  ]
 }`;
 
-// ตรวจ + เตรียม ruleset จาก JSON ที่ผู้ใช้นำเข้า — คืน (ruleset พร้อม checksum ที่คำนวณเอง, คำเตือน) หรือ throw Error(ข้อความไทย)
-async function prepareImport(raw: string): Promise<{ rs: Ruleset; note: string }> {
-  let data: Record<string, unknown>;
-  try {
-    data = JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    throw new Error("JSON ไม่ถูกต้อง — ตรวจรูปแบบไฟล์อีกครั้ง");
-  }
-  if (typeof data !== "object" || data === null || Array.isArray(data)) throw new Error("โครงสร้างไม่ถูกต้อง — ต้องเป็น object ของชุดกฎ");
-  const name = String(data.name ?? "").trim();
-  const sourceDoc = String(data.sourceDoc ?? "").trim();
-  const effectiveFrom = String(data.effectiveFrom ?? "").trim();
-  if (!name) throw new Error("ต้องมี name (ชื่อชุดกฎ)");
-  if (!sourceDoc) throw new Error("ต้องมี sourceDoc (เอกสารต้นทางทางการ) — ห้ามนำเข้าชุดกฎไม่ระบุที่มา");
-  if (!effectiveFrom) throw new Error("ต้องมี effectiveFrom (วันที่เริ่มมีผล)");
-
-  const factorF = data.factorF as FactorFTable | undefined;
-  if (factorF !== undefined) {
-    if (typeof factorF !== "object" || factorF === null || !Array.isArray(factorF.rows)) throw new Error("factorF ไม่ถูกต้อง — ต้องมี advancePct/retentionPct/interestPct/vatPct และ rows");
-    for (const k of ["advancePct", "retentionPct", "interestPct", "vatPct"] as const) {
-      if (typeof factorF[k] !== "number") throw new Error(`factorF.${k} ต้องเป็นตัวเลข`);
-    }
-    const err = validateFactorFTable(factorF);
-    if (err) throw new Error(`ตาราง Factor F ไม่ผ่านการตรวจ: ${err}`);
-  }
-  for (const k of ["contingencyPct", "swcPct", "durableHandlingPct"] as const) {
-    if (data[k] !== undefined && data[k] !== null && typeof data[k] !== "number") throw new Error(`${k} ต้องเป็นตัวเลข (ถ้ามี)`);
-  }
-  if (data.labor !== undefined && data.labor !== null) {
-    const l = data.labor as { minPct?: unknown; maxPct?: unknown };
-    if (typeof l.minPct !== "number" || typeof l.maxPct !== "number") throw new Error("labor ต้องเป็น { minPct, maxPct }");
-  }
-
-  const draft = {
-    factorF: factorF ?? null,
-    labor: (data.labor as Ruleset["labor"]) ?? null,
-    contingencyPct: (data.contingencyPct as number | undefined) ?? null,
-    swcPct: (data.swcPct as number | undefined) ?? null,
-    durableHandlingPct: (data.durableHandlingPct as number | undefined) ?? null,
-  };
-  const computed = await rulesetChecksum(draft);
-  let note = "";
-  if (typeof data.checksum === "string" && data.checksum) {
-    if (data.checksum !== computed) {
-      throw new Error(
-        `checksum ไม่ตรงกับเนื้อหาตาราง (ไฟล์: ${String(data.checksum).slice(0, 8)}… / คำนวณใหม่: ${computed.slice(0, 8)}…) — ไฟล์อาจถูกแก้หลังจากคำนวณ checksum ห้ามนำเข้า`,
-      );
-    }
-  } else {
-    note = "ไฟล์ไม่มี checksum — ระบบคำนวณจากเนื้อหาให้ใหม่ (ควรตรวจตัวเลขกับเอกสารต้นทางก่อนใช้จริง)";
-  }
-
-  const rs: Ruleset = {
-    id: String(data.id ?? "").trim() || crypto.randomUUID(),
-    name,
-    sourceDoc,
-    sourceUrl: data.sourceUrl ? String(data.sourceUrl) : undefined,
-    effectiveFrom,
-    checksum: computed,
-    factorF,
-    labor: draft.labor ?? undefined,
-    contingencyPct: draft.contingencyPct ?? undefined,
-    swcPct: draft.swcPct ?? undefined,
-    durableHandlingPct: draft.durableHandlingPct ?? undefined,
-    notices: Array.isArray(data.notices) ? (data.notices as unknown[]).map(String) : undefined,
-    supersededBy: typeof data.supersededBy === "string" && data.supersededBy ? data.supersededBy : undefined,
-    createdAt: new Date().toISOString(),
-  };
-  return { rs, note };
-}
+// ตรวจ + เตรียม ruleset อยู่ที่ lib/ruleset-import.ts (pure — ทดสอบด้วย Vitest ได้) — หน้านี้แค่ UI + storage
+const W481_INSTALL_PROMPT =
+  "ติดตั้งชุดตาราง Factor F ตามประกาศ ว 481 ลงเครื่องนี้?\n" +
+  "(48 ตาราง = 4 ประเภทงาน × 12 คู่อัตรา — ระบบจะตรวจ checksum รายตารางก่อนบันทึก)\n\n" +
+  "⚠ ตัวเลขถอดจาก PDF mirror (Yotathai) ยังต้องยืนยันกับราชกิจจานุเบกษา/เล่มจริง " +
+  "ก่อนใช้คำนวณเอกสารที่ส่งหน่วยงานจริง";
 
 export default function RulesetsPage() {
   const [list, setList] = useState<Ruleset[]>([]);
@@ -147,6 +101,42 @@ export default function RulesetsPage() {
     reader.readAsText(file, "utf-8");
   }
 
+  // ติดตั้งชุดตาราง ว 481 ที่ generate ไว้ใน repo (lib/ruleset-w481-2569.ts — GENERATED ห้ามแก้มือ)
+  // ตรวจ checksum รายตาราง + ชุดรวมก่อนเสมอ แล้วผ่าน prepareImport ให้เป็นชุดกฎในเครื่อง
+  // ตัด checksum ชุดข้อมูลออกก่อน (มัน checksum เฉพาะ array ตาราง ไม่ใช่ checksum ระดับชุดกฎ — ระบบคำนวณให้ใหม่)
+  async function installW481() {
+    if (!window.confirm(W481_INSTALL_PROMPT)) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const w = await import("@/lib/ruleset-w481-2569");
+      const bad = await w.verifyW481Checksums();
+      if (bad.length > 0) throw new Error(`checksum ชุดข้อมูล ว 481 ตรวจไม่ผ่าน: ${bad.join(" · ")} — ไฟล์เพี้ยนจากต้นฉบับที่ generate ห้ามติดตั้ง`);
+      const { checksum: setChecksum, ...base } = w.getW481Ruleset();
+      const withSetNote = {
+        ...base,
+        setChecksum, // checksum เฉพาะชุดตาราง — กันการตัด factorFTables ออกจากไฟล์ภายหลัง
+        notices: [
+          ...base.notices ?? [],
+          "⚠ ตัวเลขถอดจาก PDF mirror (Yotathai) — ยังไม่ยืนยันกับราชกิจจานุเบกษา/เล่มจริง ห้ามใช้คำนวณเอกสารที่ส่งหน่วยงานจริงก่อนยืนยัน",
+          `SET checksum ของชุด 48 ตาราง (ตรวจผ่านตอนติดตั้ง): ${setChecksum}`,
+        ],
+      };
+      const { rs: prepared, note } = await prepareImport(JSON.stringify(withSetNote));
+      const existing = list.find((x) => x.id === prepared.id);
+      if (existing && existing.checksum !== prepared.checksum) {
+        throw new Error(`มีชุดกฎ id ${prepared.id.slice(0, 8)}… อยู่แล้วโดย checksum ต่างกัน — ลบชุดกฎเดิมออกก่อนติดตั้งใหม่`);
+      }
+      const next = existing ? list.map((x) => (x.id === prepared.id ? prepared : x)) : [...list, prepared];
+      persist(next);
+      setResult({ ok: true, message: `ติดตั้งสำเร็จ: ${prepared.name} (SET checksum ตรวจผ่าน)${note ? " — " + note : ""}` });
+    } catch (e) {
+      setResult({ ok: false, message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function exportRs(rs: Ruleset) {
     const blob = new Blob([JSON.stringify(rs, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -189,7 +179,8 @@ export default function RulesetsPage() {
       <div className="mb-8 rounded-xl border border-slate-200 bg-white p-5">
         <h2 className="mb-2 text-lg font-semibold text-blue-950">นำเข้าชุดกฎ (JSON)</h2>
         <p className="mb-3 text-xs text-slate-500">
-          วางเนื้อหา JSON หรือเลือกไฟล์ — ถ้าไฟล์มี checksum ระบบจะตรวจกับเนื้อหาตาราง (ตรวจพบการแก้ไฟล์ภายหลัง)
+          วางเนื้อหา JSON หรือเลือกไฟล์ — รองรับทั้ง <code>factorF</code> (ตารางเดี่ยว) และ <code>factorFTables</code> (ชุดหลายตาราง เช่น ว 481) —
+          ถ้าไฟล์มี checksum ระบบจะตรวจกับเนื้อหาตาราง (ตรวจพบการแก้ไฟล์ภายหลัง)
         </p>
         <textarea
           value={paste}
@@ -213,6 +204,23 @@ export default function RulesetsPage() {
           <button onClick={() => setShowSample((s) => !s)} className="text-sm text-blue-700 underline">
             {showSample ? "ซ่อนโครงสร้างตัวอย่าง" : "ดูโครงสร้าง JSON ตัวอย่าง"}
           </button>
+        </div>
+
+        {/* ติดตั้งชุดตาราง ว 481 ที่ generate ไว้ใน repo — ผ่านการตรวจ checksum รายตารางก่อนบันทึก */}
+        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs text-slate-600">
+            ชุดตาราง Factor F ตามประกาศ <b>ว 481</b> (48 ตาราง = 4 ประเภทงาน × 12 คู่อัตรา) — ถอดจาก w481.pdf ที่ generate ไว้ใน repo พร้อม checksum รายตาราง + ชุดรวม
+          </p>
+          <button
+            onClick={installW481}
+            disabled={busy}
+            className="mt-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-40"
+          >
+            {busy ? "กำลังตรวจ…" : "ติดตั้งชุด ว 481 ลงเครื่องนี้"}
+          </button>
+          <p className="mt-1.5 text-xs text-amber-900">
+            ⚠ ตัวเลขถอดจาก PDF mirror (Yotathai) — ยังต้องยืนยันกับราชกิจจานุเบกษา/เล่มจริงก่อนใช้คำนวณเอกสารที่ส่งหน่วยงานจริง
+          </p>
         </div>
         {result && (
           <p className={`mt-3 rounded-lg border px-3 py-2 text-sm ${result.ok ? "border-green-500 bg-green-50 text-green-800" : "border-red-400 bg-red-50 text-red-800"}`}>
@@ -260,7 +268,12 @@ export default function RulesetsPage() {
                 {rs.contingencyPct !== undefined && <span>เงินเผื่อจำเป็น: {rs.contingencyPct}%</span>}
                 {rs.swcPct !== undefined && <span>ค่าดำเนินงาน (ก่อสร้าง): {rs.swcPct}%</span>}
                 {rs.durableHandlingPct !== undefined && <span>ค่าดำเนินงานครุภัณฑ์: {rs.durableHandlingPct}%</span>}
-                {!rs.factorF && <span className="text-amber-900">ไม่มีตาราง Factor F — เครื่องยนต์จะคำนวณแบบไม่ปรับ (F = 1)</span>}
+                {rs.factorFTables !== undefined && rs.factorFTables.length > 0 && (
+                  <span>ชุดตาราง Factor F: {rs.factorFTables.length} ตาราง (เลือกตามประเภทงาน × ทดรองจ่าย × ประกันผลงาน)</span>
+                )}
+                {!rs.factorF && !(rs.factorFTables !== undefined && rs.factorFTables.length > 0) && (
+                  <span className="text-amber-900">ไม่มีตาราง Factor F — เครื่องยนต์จะคำนวณแบบไม่ปรับ (F = 1)</span>
+                )}
               </div>
 
               {rs.notices && rs.notices.length > 0 && (
@@ -295,6 +308,48 @@ export default function RulesetsPage() {
                     </table>
                   </div>
                   <p className="mt-1 text-xs text-slate-500">พารามิเตอร์: ทดรองจ่าย {rs.factorF.advancePct}% · ประกันผลงาน {rs.factorF.retentionPct}% · ดอกเบี้ย {rs.factorF.interestPct}% · VAT {rs.factorF.vatPct}%</p>
+                </details>
+              )}
+
+              {rs.factorFTables !== undefined && rs.factorFTables.length > 0 && (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-sm text-blue-700">
+                    ชุดตาราง Factor F ({rs.factorFTables.length} ตาราง — เลือกตามประเภทงาน × ทดรองจ่าย × ประกันผลงาน)
+                  </summary>
+                  <div className="mt-2 overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-100 text-left text-slate-600">
+                        <tr>
+                          <th className="px-2 py-1 font-medium">ประเภทงาน</th>
+                          <th className="px-2 py-1 font-medium">ทดรองจ่าย (%)</th>
+                          <th className="px-2 py-1 font-medium">ประกันผลงาน (%)</th>
+                          <th className="px-2 py-1 font-medium">ดอกเบี้ย (%)</th>
+                          <th className="px-2 py-1 font-medium">VAT (%)</th>
+                          <th className="px-2 py-1 font-medium">จำนวนช่วง</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...rs.factorFTables]
+                          .sort(
+                            (a, b) =>
+                              (a.workType ?? "").localeCompare(b.workType ?? "") ||
+                              a.advancePct - b.advancePct ||
+                              a.retentionPct - b.retentionPct,
+                          )
+                          .map((t, i) => (
+                            <tr key={i} className="border-t border-slate-100">
+                              <td className="px-2 py-1">{WORK_TYPE_LABELS[t.workType as WorkTypeCode]}</td>
+                              <td className="px-2 py-1">{t.advancePct}</td>
+                              <td className="px-2 py-1">{t.retentionPct}</td>
+                              <td className="px-2 py-1">{t.interestPct}</td>
+                              <td className="px-2 py-1">{t.vatPct}</td>
+                              <td className="px-2 py-1">{t.rows.length}</td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {rs.factorF !== undefined && <p className="mt-1 text-xs text-slate-500">ไฟล์มีตารางเดี่ยว (factorF) อยู่ด้วย — เครื่องยนต์จะใช้ชุดตารางนี้เท่านั้น</p>}
                 </details>
               )}
 

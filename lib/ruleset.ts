@@ -27,6 +27,14 @@ export type FactorFRow = {
 
 export type WorkTypeCode = "building" | "road" | "bridge" | "irrigation"; // อาคาร / งานทาง / สะพาน+ท่อเหลี่ยม / ชลประทาน
 
+// ป้ายภาษาไทยของประเภทงาน (ใช้ร่วมกันทุกหน้า UI — ห้ามแปลซ้ำกระจายหลายไฟล์)
+export const WORK_TYPE_LABELS: Record<WorkTypeCode, string> = {
+  building: "อาคาร",
+  road: "งานทาง",
+  bridge: "สะพาน + ท่อเหลี่ยม",
+  irrigation: "ชลประทาน",
+};
+
 export type FactorFTable = {
   advancePct: number; // % เงินทดรองจ่าย (ค่าจ้างล่วงหน้า)
   retentionPct: number; // % เงินประกันผลงาน
@@ -45,6 +53,7 @@ export type Ruleset = {
   checksum: string; // ลายนิ้วมือกันการแก้ไข: FNV-1a 2×32-bit (hex 16 ตัว) — ไม่ใช่ crypto-strong, คำนวณด้วย computeChecksum
   factorF?: FactorFTable; // ตาราง Factor F เดี่ยว (ใช้ได้กับประกาศที่ให้ตารางเดียว)
   factorFTables?: FactorFTable[]; // ชุดตารางหลายตาราง (เช่น ว 481: 4 ประเภทงาน × 12 คู่อัตรา) — เลือกด้วย selectFactorFTable
+  setChecksum?: string; // checksum ของ factorFTables (array เปล่า ๆ ไม่รวมส่วนอื่น) — กันการตัดชุดตารางออกจากไฟล์ภายหลัง; ตรวจตอน import เมื่อมีฟิลด์นี้ (ไฟล์เก่าที่ไม่มี = ไม่ตรวจ)
   labor?: { minPct: number; maxPct: number }; // ช่วง % ค่าแรง เช่น 30–37 — จากเอกสารทางการเท่านั้น
   contingencyPct?: number; // % เงินเผื่อจำเป็น — จากเอกสารทางการเท่านั้น (ไม่มีค่า default ในโค้ด)
   swcPct?: number; // % ค่าดำเนินงาน (งานก่อสร้าง) — จากเอกสารทางการเท่านั้น
@@ -197,20 +206,27 @@ export function rulesetStatus(rs: Ruleset | undefined): "ok" | "superseded" | "m
 
 // checksum ของ "เนื้อหาตัวเลขกฎหมาย" ทั้งชุด — ใช้ตรวจ import/export ให้ตรงกัน และตรวจพบการแก้ไฟล์ภายหลัง
 // (null = ไม่มีข้อมูลส่วนนั้น — canonical ทุกรูปแบบเดียวกันข้ามเครื่อง)
+// factorFTables (ชุดตารางหลายตาราง เช่น ว 481) ใส่ใน checksum เฉพาะเมื่อมี เพื่อไม่ให้ checksum
+// ของชุดกฎเดิม (ก่อน ว 481 — ไม่มีชุดตาราง) เปลี่ยน (backward-compat: export/import รอบเก่ายังตรงกัน)
 export async function rulesetChecksum(
   rs: {
     factorF?: FactorFTable | null;
+    factorFTables?: FactorFTable[] | null;
     labor?: { minPct: number; maxPct: number } | null;
     contingencyPct?: number | null;
     swcPct?: number | null;
     durableHandlingPct?: number | null;
   },
 ): Promise<string> {
-  return computeChecksum({
+  const canonical: Record<string, unknown> = {
     factorF: rs.factorF ?? null,
     labor: rs.labor ?? null,
     contingencyPct: rs.contingencyPct ?? null,
     swcPct: rs.swcPct ?? null,
     durableHandlingPct: rs.durableHandlingPct ?? null,
-  });
+  };
+  if (rs.factorFTables !== undefined && rs.factorFTables !== null && rs.factorFTables.length > 0) {
+    canonical.factorFTables = rs.factorFTables;
+  }
+  return computeChecksum(canonical);
 }
