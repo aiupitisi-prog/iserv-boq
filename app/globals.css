@@ -77,6 +77,12 @@ body {
     border-color: #cbd5e1 !important;
   }
 
+  /* F3 — กล่องเตือน (unverified) ต้องมองเห็นขอบชัดบนกระดาษ ไม่จางตามสีเทาปกติของ print */
+  .print-warn {
+    border-color: #475569 !important;
+    border-width: 1px;
+  }
+
   .print-header {
     display: block;
     position: fixed;

@@ -857,6 +857,12 @@ export default function DocsClient({ projectId }: { projectId: string }) {
 
       <div className="no-print mb-6 flex flex-wrap items-center gap-2">
         <a href={`/projects/${projectId}`} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">← กลับ editor</a>
+        <a href={`/projects/${projectId}/docs/reg2569`} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800">
+          ชุด 9 ชิ้นตามระเบียบ 2569 →
+        </a>
+        <span className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          ⚠ ชุดนี้เป็นโครงเดิม (10 ฉบับ) ยังไม่ตรงแบบฟอร์มระเบียบ 2569 — จัดทำรายงานตามข้อ 11 เล่ม 2 ด้วยชุด 9 ชิ้น (ลิงก์ข้างบน)
+        </span>
         <button onClick={() => window.print()} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800">พิมพ์ทั้งชุด (10 ฉบับ)</button>
         {unsplitNames.length > 0 && (
           <span className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
