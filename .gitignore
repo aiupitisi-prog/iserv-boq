@@ -7,3 +7,5 @@ next-env.d.ts
 .DS_Store
 Thumbs.db
 docs/xy.pdf
+# สคริปต์สำรวจ/ข้อความต้นฉบับชั่วคราว — ห้าม commit (ไฟล์ PDF ต้นฉบับอยู่ใน docs/reg-2569)
+temp/

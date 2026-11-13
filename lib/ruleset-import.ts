@@ -4,10 +4,24 @@
 // - ระบบตรวจ "โครงสร้าง/ความสมเหตุสมผลของตาราง" เท่านั้น — ไม่ตรวจว่าตัวเลขถูกตามกฎหมาย
 //   (ผู้นำเข้าต้องอ้างเอกสารต้นทางเอง — sourceDoc บังคับ)
 // - checksum ผูกกับเนื้อหาตาราง (รวมชุดตาราง factorFTables ของ ว 481) — แก้ไฟล์ภายหลัง = ตรวจพบ
-import type { FactorFTable, Ruleset, WageSchedule, WorkTypeCode } from "./ruleset";
+import type { FactorFTable, Ruleset, TransportSchedule, WageSchedule, WorkTypeCode } from "./ruleset";
 import { computeChecksum, rulesetChecksum, validateFactorFTable } from "./ruleset";
 
 const WORK_TYPES: readonly WorkTypeCode[] = ["building", "road", "bridge", "irrigation"];
+
+// ตรึงข้อมูลที่นำเข้าแบบลึก — กันผู้เรียกเผลอแก้ตารางหลังตรวจ checksum แล้ว
+// (checksum ถูกคำนวณตอน import; ถ้าข้อมูลเปลี่ยนภายหลังโดยไม่คำนวณใหม่ checksum จะไม่ตรงกับเนื้อหา)
+function deepFreeze<T>(v: T): T {
+  if (Array.isArray(v)) {
+    for (const x of v) deepFreeze(x);
+    return Object.freeze(v) as T;
+  }
+  if (v && typeof v === "object") {
+    for (const k of Object.keys(v)) deepFreeze((v as Record<string, unknown>)[k]);
+    return Object.freeze(v);
+  }
+  return v;
+}
 
 // ตรวจโครงสร้างบัญชีค่าแรงงาน (ว 480) — โครงสร้างเท่านั้น ไม่ตรวจว่าค่าถูกตามกฎหมาย
 // เข้มเท่ากับ parser (scripts/parse-w480.mjs): ลำดับรูปแบบ/ไม่ซ้ำ, ระดับตรงกับจำนวนช่วง, ราคาเป็นบาทเต็ม > 0
@@ -68,6 +82,80 @@ function priceRowError(p: { price: number; unit?: string; name?: string; note?: 
     return `${path}.price ต้องเป็นจำนวนเต็มบาทที่มากกว่า 0 (ตัวประกาศพิมพ์เป็นบาทเต็ม)`;
   for (const k of ["unit", "name", "note"] as const) {
     if (p[k] !== undefined && typeof p[k] !== "string") return `${path}.${k} ต้องเป็นข้อความ (ถ้ามี)`;
+  }
+  return null;
+}
+
+// ตรวจโครงสร้างตารางค่าขนส่ง (ว 477) — โครงสร้าง/ความต่อเนื่องเท่านั้น ไม่ตรวจว่าค่าถูกตามกฎหมาย
+// เข้มเท่ากับ parser (scripts/parse-w477.mjs): จำนวนเงินเป็นสตางค์จำนวนเต็ม > 0, ช่วงน้ำมันต่อเนื่อง,
+// อัตรา 201–1000 กม. เริ่มต่อจากระยะสุดท้ายของตาราง, ราคา/ตัน กับ /ลบ.ม. มีความยาวเท่ากันและไม่ลดลงตามระยะ
+// หมายเหตุ: sections = [] ถือว่า "ไม่ระบุตาราง" (ไม่ใช่โครงสร้างผิด) — prepareImport จะตัดทิ้ง
+function transportScheduleError(s: TransportSchedule, where = "transportSchedule"): string | null {
+  if (typeof s !== "object" || s === null || Array.isArray(s)) return `${where} ไม่ถูกต้อง — ต้องเป็น object { distanceStartKm, sections, conditions, fuelPriceBasis, notices, unit }`;
+  if (!Array.isArray(s.sections)) return `${where}.sections ต้องเป็น array ของประเภทารถ`;
+  if (s.sections.length === 0) return null;
+  if (s.unit !== "satang") return `${where}.unit ต้องเป็น "satang" (ชุดนี้เก็บจำนวนเงินเป็นสตางค์จำนวนเต็ม)`;
+  if (!Number.isInteger(s.distanceStartKm) || s.distanceStartKm <= 0) return `${where}.distanceStartKm ต้องเป็นจำนวนเต็มบวก`;
+  if (!Array.isArray(s.conditions) || s.conditions.length === 0 || s.conditions.some((c) => typeof c !== "string" || !c.trim()))
+    return `${where}.conditions ต้องเป็น array ของข้อความเงื่อนไขหัวตาราง (อย่างน้อย 1) — เงื่อนไขการใช้ตารางต้องมาพร้อมข้อมูล`;
+  if (typeof s.fuelPriceBasis !== "string" || !s.fuelPriceBasis.trim())
+    return `${where}.fuelPriceBasis ต้องเป็นข้อความระบุฐานราคาน้ำมันตามหัวตาราง`;
+  if (!Array.isArray(s.notices) || s.notices.some((n) => typeof n !== "string")) return `${where}.notices ต้องเป็น array ของข้อความ`;
+  const seenCombo = new Set<string>();
+  for (let i = 0; i < s.sections.length; i++) {
+    const sec = s.sections[i];
+    const w = `${where}.sections[${i}]`;
+    if (typeof sec !== "object" || sec === null || Array.isArray(sec)) return `${w} ไม่ถูกต้อง — ต้องเป็น object ของประเภทรถ`;
+    if (typeof sec.truckType !== "string" || !sec.truckType) return `${w}.truckType ต้องเป็นข้อความ`;
+    if (typeof sec.titlePrinted !== "string" || !sec.titlePrinted.trim()) return `${w}.titlePrinted ต้องเป็นข้อความหัวตารางตามที่พิมพ์`;
+    if (!Number.isInteger(sec.lorryCount) || sec.lorryCount <= 0) return `${w}.lorryCount ต้องเป็นจำนวนเต็มบวก`;
+    if (typeof sec.hasTrailer !== "boolean") return `${w}.hasTrailer ต้องเป็น boolean`;
+    if (typeof sec.maxGrossTons !== "number" || !Number.isFinite(sec.maxGrossTons) || sec.maxGrossTons <= 0)
+      return `${w}.maxGrossTons ต้องเป็นตัวเลขบวก`;
+    const combo = `${sec.lorryCount}|${sec.hasTrailer}`;
+    if (seenCombo.has(combo)) return `${w}: ประเภทารถซ้ำ (${sec.lorryCount} ล้อ · พ่วง=${sec.hasTrailer}) — เลือกได้ไม่ชัดเจน`;
+    seenCombo.add(combo);
+    if (!Array.isArray(sec.bands) || sec.bands.length === 0) return `${w}.bands ต้องเป็น array ของช่วงราคาน้ำมัน`;
+    let prevFuelMin = -Infinity;
+    for (let j = 0; j < sec.bands.length; j++) {
+      const b = sec.bands[j];
+      const bw = `${w}.bands[${j}]`;
+      if (typeof b !== "object" || b === null || Array.isArray(b)) return `${bw} ไม่ถูกต้อง — ต้องเป็น object ของช่วงราคาน้ำมัน`;
+      for (const k of ["fuelMinSatang", "fuelMaxSatang", "avgFuelSatang", "farMinKm", "farMaxKm", "farPerTonSatang", "farPerM3Satang"] as const) {
+        if (!Number.isInteger(b[k]) || b[k] <= 0) return `${bw}.${k} ต้องเป็นจำนวนเต็มบวก (สตางค์/กม.)`;
+      }
+      if (!(b.fuelMaxSatang > b.fuelMinSatang)) return `${bw}: fuelMaxSatang ต้องมากกว่า fuelMinSatang`;
+      if (!(b.fuelMinSatang > prevFuelMin)) return `${bw}: ช่วงราคาน้ำมันต้องเรียงจากน้อยไปมาก (fuelMinSatang ${b.fuelMinSatang} ไม่มากกว่าช่วงก่อนหน้า ${prevFuelMin})`;
+      prevFuelMin = b.fuelMinSatang;
+      if (b.avgFuelSatang < b.fuelMinSatang || b.avgFuelSatang > b.fuelMaxSatang)
+        return `${bw}: ค่าเฉลี่ยน้ำมัน (${b.avgFuelSatang}) ต้องอยู่ในช่วง ${b.fuelMinSatang}–${b.fuelMaxSatang}`;
+      if (!(b.farMaxKm > b.farMinKm)) return `${bw}: farMaxKm ต้องมากกว่า farMinKm`;
+      const n = Array.isArray(b.perTonSatang) ? b.perTonSatang.length : -1;
+      if (n <= 0) return `${bw}.perTonSatang ต้องเป็น array ของราคาต่อตัน (อย่างน้อย 1 ระยะ)`;
+      if (!Array.isArray(b.perM3Satang) || b.perM3Satang.length !== n)
+        return `${bw}: perTonSatang กับ perM3Satang ต้องมีจำนวนระยะเท่ากัน (${n} ≠ ${Array.isArray(b.perM3Satang) ? b.perM3Satang.length : "ไม่ใช่ array"})`;
+      for (let k = 0; k < n; k++) {
+        if (!Number.isInteger(b.perTonSatang[k]) || b.perTonSatang[k] <= 0) return `${bw}.perTonSatang[${k}] ต้องเป็นจำนวนเต็มบวก (สตางค์)`;
+        if (!Number.isInteger(b.perM3Satang[k]) || b.perM3Satang[k] <= 0) return `${bw}.perM3Satang[${k}] ต้องเป็นจำนวนเต็มบวก (สตางค์)`;
+        if (k > 0) {
+          if (b.perTonSatang[k] < b.perTonSatang[k - 1])
+            return `${bw}: perTonSatang ลดลงเมื่อระยะทางเพิ่ม (ระยะ ${s.distanceStartKm + k} กม.: ${b.perTonSatang[k - 1]} → ${b.perTonSatang[k]} สตางค์) — ราคาต้องไม่ลดลงตามระยะ`;
+          if (b.perM3Satang[k] < b.perM3Satang[k - 1])
+            return `${bw}: perM3Satang ลดลงเมื่อระยะทางเพิ่ม (ระยะ ${s.distanceStartKm + k} กม.: ${b.perM3Satang[k - 1]} → ${b.perM3Satang[k]} สตางค์) — ราคาต้องไม่ลดลงตามระยะ`;
+        }
+      }
+      // ตารางต้องสิ้นสุดก่อนช่วง "กม.ละ" 1 กม. (เช่น ระยะ 1–200 แล้วต่อด้วย 201–1000)
+      if (b.farMinKm !== s.distanceStartKm + n) return `${bw}: farMinKm (${b.farMinKm}) ต้องเท่ากับระยะสุดท้ายของตาราง + 1 (${s.distanceStartKm + n})`;
+      if (!Array.isArray(b.sourcePages) || b.sourcePages.length !== 2 || b.sourcePages.some((p) => !Number.isInteger(p) || p <= 0))
+        return `${bw}.sourcePages ต้องเป็น [หน้าแรก, หน้าที่สอง] ของ PDF ต้นฉบับ`;
+      if (!(b.sourcePages[0] < b.sourcePages[1]))
+        return `${bw}.sourcePages ต้องเรียงจากน้อยไปมาก (หน้าแรก ${b.sourcePages[0]} < หน้าที่สอง ${b.sourcePages[1]})`;
+      if (j > 0) {
+        const prev = sec.bands[j - 1];
+        if (b.fuelMinSatang !== prev.fuelMaxSatang + 1)
+          return `${bw}: ช่วงราคาน้ำมันไม่ต่อเนื่อง (ช่วงก่อนหน้าจบ ${prev.fuelMaxSatang} แต่ช่วงนี้เริ่ม ${b.fuelMinSatang})`;
+      }
+    }
   }
   return null;
 }
@@ -159,6 +247,29 @@ export async function prepareImport(raw: string): Promise<{ rs: Ruleset; note: s
     throw new Error("ไฟล์ระบุ wageScheduleChecksum (checksum ของบัญชีค่าแรงงาน) แต่ไม่พบ wageSchedule — ไฟล์อาจถูกตัดหรือแก้ไข ห้ามนำเข้า");
   }
 
+  // — ตารางค่าขนส่ง (transportSchedule) — รูปแบบตาราง ว 477 (ตรวจโครงสร้าง ไม่ตรวจค่ากฎหมาย) —
+  // ว่าง (sections array ว่าง) = ถือว่าไม่ระบุ — ตัดทิ้งเพื่อให้ checksum เทียบเท่าแบบไม่มีตาราง
+  let transportSchedule: TransportSchedule | undefined;
+  let transportNote = "";
+  const fileTransportChecksum =
+    typeof data.transportScheduleChecksum === "string" && data.transportScheduleChecksum ? data.transportScheduleChecksum : undefined;
+  if (data.transportSchedule !== undefined && data.transportSchedule !== null) {
+    const s = data.transportSchedule as TransportSchedule;
+    const err = transportScheduleError(s);
+    if (err) throw new Error(err);
+    if (s.sections.length > 0) {
+      // ตรึงข้อมูลลึก — checksum ผูกกับเนื้อหาตอน import; แก้ภายหลัง = checksum ไม่ตรงกับข้อมูลจริง
+      transportSchedule = deepFreeze(s);
+      const bands = s.sections.reduce((a, x) => a + x.bands.length, 0);
+      transportNote = `ไฟล์มีตารางค่าขนส่ง (transportSchedule) ${s.sections.length} ประเภทารถ × ${bands} ช่วงราคาน้ำมัน — จำนวนเงินเป็นสตางค์ · ต้องยืนยันตัวเลขกับเอกสารต้นทางก่อนใช้คำนวณจริง`;
+    } else {
+      transportNote = "ไฟล์ระบุ transportSchedule ว่าง (sections = []) — ถือว่าไม่ระบุตาราง ตัดทิ้งเพื่อให้ checksum เทียบเท่าแบบไม่มีตาราง";
+    }
+  }
+  if (fileTransportChecksum && !transportSchedule) {
+    throw new Error("ไฟล์ระบุ transportScheduleChecksum (checksum ของตารางค่าขนส่ง) แต่ไม่พบ transportSchedule — ไฟล์อาจถูกตัดหรือแก้ไข ห้ามนำเข้า");
+  }
+
   for (const k of ["contingencyPct", "swcPct", "durableHandlingPct"] as const) {
     if (data[k] !== undefined && data[k] !== null && typeof data[k] !== "number") throw new Error(`${k} ต้องเป็นตัวเลข (ถ้ามี)`);
   }
@@ -214,10 +325,26 @@ export async function prepareImport(raw: string): Promise<{ rs: Ruleset; note: s
     notes.push("ระบบคำนวณ wageScheduleChecksum ของบัญชีค่าแรงงานให้ใหม่ (ป้องกันการตัดบัญชีออกจากไฟล์ภายหลัง)");
   }
 
+  // transportScheduleChecksum — pattern เดียวกัน ผูกตารางค่าขนส่ง (ว 477)
+  let transportScheduleChecksum: string | undefined;
+  if (fileTransportChecksum && transportSchedule) {
+    const actual = await computeChecksum(transportSchedule);
+    if (actual !== fileTransportChecksum) {
+      throw new Error(
+        `transportScheduleChecksum ไม่ตรงกับตารางค่าขนส่ง (ไฟล์: ${fileTransportChecksum.slice(0, 8)}… / คำนวณใหม่: ${actual.slice(0, 8)}…) — ตารางอาจถูกแก้ภายหลัง ห้ามนำเข้า`,
+      );
+    }
+    transportScheduleChecksum = fileTransportChecksum;
+  } else if (transportSchedule) {
+    transportScheduleChecksum = await computeChecksum(transportSchedule);
+    notes.push("ระบบคำนวณ transportScheduleChecksum ของตารางค่าขนส่งให้ใหม่ (ป้องกันการตัดตารางออกจากไฟล์ภายหลัง)");
+  }
+
   const draft = {
     factorF: factorF ?? null,
     factorFTables,
     wageSchedule,
+    transportSchedule,
     labor: (data.labor as Ruleset["labor"]) ?? null,
     contingencyPct: (data.contingencyPct as number | undefined) ?? null,
     swcPct: (data.swcPct as number | undefined) ?? null,
@@ -235,6 +362,7 @@ export async function prepareImport(raw: string): Promise<{ rs: Ruleset; note: s
   }
   if (setNote) notes.push(setNote);
   if (wageNote) notes.push(wageNote);
+  if (transportNote) notes.push(transportNote);
 
   const rs: Ruleset = {
     id: String(data.id ?? "").trim() || globalThis.crypto?.randomUUID?.() || `rs-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`,
@@ -248,6 +376,8 @@ export async function prepareImport(raw: string): Promise<{ rs: Ruleset; note: s
     setChecksum,
     wageSchedule,
     wageScheduleChecksum,
+    transportSchedule,
+    transportScheduleChecksum,
     labor: draft.labor ?? undefined,
     contingencyPct: draft.contingencyPct ?? undefined,
     swcPct: draft.swcPct ?? undefined,

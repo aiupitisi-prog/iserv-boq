@@ -55,6 +55,8 @@ export type Ruleset = {
   factorFTables?: FactorFTable[]; // ชุดตารางหลายตาราง (เช่น ว 481: 4 ประเภทงาน × 12 คู่อัตรา) — เลือกด้วย selectFactorFTable
   wageSchedule?: WageSchedule; // บัญชีค่าแรงงาน/ดำเนินการ (กค 0433.2/ว 480) — รายการค่าแรงงานต่อหน่วย
   wageScheduleChecksum?: string; // checksum ของ wageSchedule (กันการตัดชุดออกจากไฟล์ภายหลัง — pattern เดียวกับ setChecksum)
+  transportSchedule?: TransportSchedule; // ตารางค่าขนส่งวัสดุก่อสร้าง (กค 0433.2/ว 477) — 3 ประเภทารถ × 45 ช่วงน้ำมัน × ระยะ 1–200 กม.
+  transportScheduleChecksum?: string; // checksum ของ transportSchedule (กันการตัดตารางออกจากไฟล์ภายหลัง)
   setChecksum?: string; // checksum ของ factorFTables (array เปล่า ๆ ไม่รวมส่วนอื่น) — กันการตัดชุดตารางออกจากไฟล์ภายหลัง; ตรวจตอน import เมื่อมีฟิลด์นี้ (ไฟล์เก่าที่ไม่มี = ไม่ตรวจ)
   labor?: { minPct: number; maxPct: number }; // ช่วง % ค่าแรง เช่น 30–37 — จากเอกสารทางการเท่านั้น
   // ที่มาของชุดกฎ — ใช้เตือนผู้ใช้/เอกสารพิมพ์ว่าไฟล์ต้นทางยังไม่ยืนยันกับราชกิจจานุเบกษา
@@ -99,6 +101,42 @@ export type WageEntry = {
 export type WageSchedule = {
   entries: WageEntry[];
   notices: string[]; // หมายเหตุ 3 ข้อท้ายบัญชี (อยู่ใน checksum ด้วย)
+};
+
+// — ตารางค่าขนส่งวัสดุก่อสร้าง (กค 0433.2/ว 477) — โครงสร้างถอดจากเอกสารจริง ผ่าน parser scripts/parse-w477.mjs
+// ⚠️ ทุกจำนวนเงินในชุดนี้เป็น "สตางค์" จำนวนเต็ม (ตัวประกาศพิมพ์บาททศนิยม 2 ตำแหน่ง → ×100 ตรงตัว ไม่ปัดเศษ)
+//    ราคาน้ำมันก็เก็บเป็นสตางค์ (25.00 บาท/ลิตร = 2500) เพื่อกันเศษทศนิยมลอยตัว
+export type TransportFuelBand = {
+  fuelMinSatang: number; // ขอบล่างช่วงราคาน้ำมันดีเซล (สตางค์/ลิตร) เช่น 2500 = 25.00
+  fuelMaxSatang: number; // ขอบบน เช่น 2599 = 25.99
+  avgFuelSatang: number; // "อัตราน้ำมันเชื้อเพลิงเฉลี่ย" จากหมายเหตุท้ายตาราง (สตางค์/ลิตร)
+  farMinKm: number; // ระยะที่เริ่มคิดอัตรา "กม.ละ" (จากหมายเหตุข้อ 1 เช่น 201)
+  farMaxKm: number; // ระยะสูงสุดของอัตรา กม.ละ (เช่น 1000)
+  farPerTonSatang: number; // อัตรา กม.ละ ต่อตัน (สตางค์) — คูณกับระยะทางตามหมายเหตุข้อ 1/2
+  farPerM3Satang: number; // อัตรา กม.ละ ต่อลบ.ม. (สตางค์)
+  perTonSatang: number[]; // ราคา/ตัน ตามระยะ เรียงจาก distanceStartKm (index 0 = ระยะเริ่มต้น)
+  perM3Satang: number[]; // ราคา/ลบ.ม. ตามระยะ (index เดียวกัน)
+  sourcePages: [number, number]; // เลขหน้าใน PDF ต้นฉบับ (หน้าแรกของช่วง, หน้าที่สอง)
+};
+
+export type TransportTruckSection = {
+  truckType: string; // ป้ายจากเอกสาร เช่น "6 ล้อ", "10 ล้อ + รถลากพ่วง"
+  lorryCount: number; // จำนวนล้อ (จากหัวตาราง)
+  hasTrailer: boolean; // true = มีรถลากพ่วง (จากหัวตาราง)
+  maxGrossTons: number; // น้ำหนักรวมสูงสุด (ตัน) ตามหัวตาราง "กรณีน้ำหนักรวมไม่เกิน … ตัน"
+  titlePrinted: string; // หัวตารางตามที่พิมพ์ (เก็บไว้ตรวจทาน/แสดงที่มา)
+  bands: TransportFuelBand[]; // ช่วงราคาน้ำมัน เรียงจากน้อยไปมาก
+};
+
+export type TransportSchedule = {
+  distanceStartKm: number; // ระยะแรกของตาราง (ปกติ 1) — ใช้แปลง index → ระยะทาง
+  sections: TransportTruckSection[];
+  // เงื่อนไขการใช้ตารางตามหัวตารางทุกหน้า (ภูมิประเทศ / ผิวทาง / การจราจร) — เก็บตามที่พิมพ์
+  // ⚠️ ต้องเตือนผู้ใช้เมื่อสภาพหน้างานไม่ตรง (เช่น ผิวทางไม่ลาดยาง) — ตารางนี้ใช้กับเงื่อนไขที่ระบุเท่านั้น
+  conditions: string[];
+  fuelPriceBasis: string; // ฐานราคาน้ำมันตามหัวตาราง เช่น "ราคาน้ำมันดีเซล ที่ อำเภอเมือง"
+  notices: string[]; // หมายเหตุคงที่ของตาราง (การคูณระยะทาง / หัวข้อค่าเฉลี่ยน้ำมัน)
+  unit: "satang"; // ป้ายหน่วยเงินของทั้งชุด — กันการอ่านเป็นบาทโดยไม่ตั้งใจ
 };
 
 const KEY = "iserv-boq-rulesets-v1";
@@ -251,6 +289,7 @@ export async function rulesetChecksum(
     factorF?: FactorFTable | null;
     factorFTables?: FactorFTable[] | null;
     wageSchedule?: WageSchedule | null;
+    transportSchedule?: TransportSchedule | null;
     labor?: { minPct: number; maxPct: number } | null;
     contingencyPct?: number | null;
     swcPct?: number | null;
@@ -271,5 +310,107 @@ export async function rulesetChecksum(
   if (rs.wageSchedule !== undefined && rs.wageSchedule !== null && rs.wageSchedule.entries.length > 0) {
     canonical.wageSchedule = rs.wageSchedule;
   }
+  // ตารางค่าขนส่ง (ว 477) — เงื่อนไขเดียวกับ wageSchedule: ใส่เมื่อมีเท่านั้น (ชุดกฎเดิม checksum ต้องไม่เปลี่ยน)
+  if (
+    rs.transportSchedule !== undefined &&
+    rs.transportSchedule !== null &&
+    rs.transportSchedule.sections.length > 0
+  ) {
+    canonical.transportSchedule = rs.transportSchedule;
+  }
   return computeChecksum(canonical);
+}
+
+// — ตัวช่วยอ่านตารางค่าขนส่ง (ว 477) — pure เท่านั้น ไม่มี I/O —
+// เลือกประเภทารถตามจำนวนล้อ + การมีรถลากพ่วง (ค่าจากหัวตาราง)
+// grossTons (ไม่บังคับ): น้ำหนักรวมของงานจริง — ถ้าเกิน maxGrossTons ของประเภทรถนั้น คืน null
+//   (ตารางครอบถึงน้ำหนักที่หัวตารางระบุเท่านั้น — ห้ามใช้ต่อเนื่องเกินขอบโดยไม่เตือน)
+export function findTransportSection(
+  schedule: TransportSchedule,
+  q: { lorryCount: number; hasTrailer: boolean; grossTons?: number },
+): TransportTruckSection | null {
+  const sec =
+    schedule.sections.find((s) => s.lorryCount === q.lorryCount && s.hasTrailer === q.hasTrailer) ?? null;
+  if (!sec) return null;
+  if (q.grossTons !== undefined) {
+    // NaN/infinity ไม่ใช่คำตอบที่ใช้ได้ — คืน null (ไม่ปล่อยผ่านเพราะ NaN > x เป็น false)
+    if (!Number.isFinite(q.grossTons)) return null;
+    if (q.grossTons > sec.maxGrossTons) return null;
+  }
+  return sec;
+}
+
+// เลือกช่วงราคาน้ำมันที่ครอบราคาที่ระบุ (สตางค์/ลิตร) — ช่วงปิดทั้งสองด้านตามที่พิมพ์ (25.00–25.99)
+export function findTransportBand(
+  section: TransportTruckSection,
+  fuelPriceSatang: number,
+): TransportFuelBand | null {
+  return (
+    section.bands.find((b) => fuelPriceSatang >= b.fuelMinSatang && fuelPriceSatang <= b.fuelMaxSatang) ??
+    null
+  );
+}
+
+// ค่าขนส่งต่อหน่วย ณ ระยะทางหนึ่ง — คืน null เมื่อระยะทางอยู่นอกขอบเขตตาราง (> farMaxKm)
+// ระยะในตาราง (distanceStartKm..distanceStartKm+len-1) = อ่านตรงจากตาราง
+// ระยะ farMinKm..farMaxKm = ระยะทาง × อัตรา "กม.ละ" ตามหมายเหตุข้อ 1/2 ของตาราง ("การคิดค่าขนส่งใช้ระยะทางขนส่งคูณด้วยอัตราค่าขนส่งต่อตัน หรือต่อลบ.ม.")
+// ⚠️ ห้ามปัดเศษระยะทางเงียบ ๆ: รับเฉพาะระยะที่เป็นจำนวนเต็ม กม. — ระยะทศนิยมคืน null
+//    เพราะอัตราต่อหน่วยเป็นสตางค์ (integer) ผลคูณกับระยะทศนิยมจะไม่เป็นจำนวนเต็ม (ผิดกฎเงิน integer)
+export type TransportCharge = {
+  basis: "table" | "per-km";
+  perTonSatang: number;
+  perM3Satang: number;
+  perTonRateSatang: number; // อัตราต่อหน่วย (ตาราง = ราคา ณ ระยะนั้น; กม.ละ = อัตราต่อ กม.)
+  perM3RateSatang: number;
+};
+
+export function transportChargeAt(
+  schedule: TransportSchedule,
+  band: TransportFuelBand,
+  distanceKm: number,
+): TransportCharge | null {
+  if (!Number.isFinite(distanceKm) || !Number.isInteger(distanceKm)) return null;
+  const idx = distanceKm - schedule.distanceStartKm;
+  if (idx >= 0 && idx < band.perTonSatang.length) {
+    return {
+      basis: "table",
+      perTonSatang: band.perTonSatang[idx],
+      perM3Satang: band.perM3Satang[idx],
+      perTonRateSatang: band.perTonSatang[idx],
+      perM3RateSatang: band.perM3Satang[idx],
+    };
+  }
+  if (distanceKm >= band.farMinKm && distanceKm <= band.farMaxKm) {
+    return {
+      basis: "per-km",
+      perTonSatang: distanceKm * band.farPerTonSatang,
+      perM3Satang: distanceKm * band.farPerM3Satang,
+      perTonRateSatang: band.farPerTonSatang,
+      perM3RateSatang: band.farPerM3Satang,
+    };
+  }
+  return null;
+}
+
+// แสดงสตางค์เป็นข้อความบาททศนิยม 2 ตำแหน่ง โดยไม่ผ่าน float (สำหรับข้อความหมายเหตุ)
+function satangBahtText(satang: number): string {
+  const whole = Math.trunc(satang / 100);
+  const st = Math.abs(satang % 100);
+  return `${whole}.${String(st).padStart(2, "0")}`;
+}
+
+// หมายเหตุของช่วงน้ำมันหนึ่ง พร้อมค่าที่ขึ้นกับช่วงนั้น — ใช้แสดงผล/พิมพ์
+// ข้อความหลักมาจาก schedule.notices (ตัด "- " แล้ว) · เติมค่าเฉพาะข้อที่ต้นฉบับแนบค่าไว้:
+//   ข้อ "ระยะทางเกินตารางคิดเป็น กม.ละ" → อัตราต่อตัน/ต่อลบ.ม. · ข้อ "อัตราน้ำมันเชื้อเพลิงเฉลี่ย" → บาท/ลิตร
+// ⚠️ จับจาก "เนื้อข้อความ" ไม่ใช่ตำแหน่ง — ลำดับหมายเหตุอาจเปลี่ยนโดยไม่ผิดโครงสร้าง
+export function transportBandNotices(schedule: TransportSchedule, band: TransportFuelBand): string[] {
+  const out = [...schedule.notices];
+  const farRate = `${satangBahtText(band.farPerTonSatang)} บาท/ตัน · ${satangBahtText(band.farPerM3Satang)} บาท/ลบ.ม.`;
+  const avgFuel = `${satangBahtText(band.avgFuelSatang)} บาท/ลิตร`;
+  for (let i = 0; i < out.length; i++) {
+    const text = out[i];
+    if (/201\s*กม/.test(text) && /1000\s*กม/.test(text)) out[i] = `${text} — ${farRate}`;
+    else if (/เชื้อเพลิงเฉลี่ย/.test(text)) out[i] = `${text} — ${avgFuel}`;
+  }
+  return out;
 }
