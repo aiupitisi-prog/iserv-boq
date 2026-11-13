@@ -25,15 +25,10 @@ import { lookupFactorF } from "./calc/factorf";
 import { splitItem, type CalcResult } from "./calc/compute";
 import { formatSatang, mulQty, pctOf, sumSatang, toSatang, type Satang } from "./calc/money";
 
-// เดือนที่ สนค. (TPSO) ยกเลิกเผยแพร่ราคาส่วนกลาง (type 10) — ข้อมูลจากประกาศของ สนค. ที่ตรวจพบ ณ พ.ย. 2569
-// (ก.ค. 2567 · พ.ค. 2568 · ธ.ค. 2568 · เม.ย. 2569) — ราคา สนค. เขตส่วนกลางที่อ้างเดือนนี้ = unverified
-// ⚠ ต้องตรวจประกาศฉบับใหม่ของ สนค. ต่อเนื่อง — อาจมีเดือนเพิ่มเติม
-const TPSO_CENTRAL_CANCELLED: { year: number; month: number }[] = [
-  { year: 2567, month: 7 },
-  { year: 2568, month: 5 },
-  { year: 2568, month: 12 },
-  { year: 2569, month: 4 },
-];
+// กฎปฏิทินราคาส่วนกลาง สนค. (TPSO type 10) — ตรวจกับระบบ สนค. จริง ณ 13 พ.ย. 2569 (scripts/tpso-central-months-check.mjs):
+// สนค. เผยแพร่ราคาส่วนกลางเป็นรายเดือนหลังสำรวจจบ — ระบบมีราคาครบ 2566–2569 ถึงเดือนก่อนเดือนพิมพ์ (ต.ค. 2569)
+// เดือนอ้างอิงที่เท่ากับหรือหลังเดือนที่พิมพ์ ยังไม่ปรากฏราคาในระบบ → unverified (ต้องใช้ราคารายจังหวัด/สืบราคาแทน)
+// (ข้อความเดิม "สนค. ยกเลิกเผยแพร่ ก.ค.2567/พ.ค.2568/ธ.ค.2568/เม.ย.2569" ถูกหักล้างด้วยข้อมูลจริง — ทุกเดือนดังกล่าวมีราคาในระบบ)
 const TPSO_CENTRAL_TYPE = "10"; // เขต "ส่วนกลาง" ของ TPSO type
 
 // จำนวนเดือนห่างจาก ref ถึง now (ปฏิทิน — นับเดือนเต็ม)
@@ -168,7 +163,7 @@ export type PriceEvidenceRow = {
   unstated: boolean; // true = ไม่ระบุแหล่งที่มาราคา (ต้องกรอกเหตุผลเพิ่ม)
   stale: boolean; // true = อายุราคา > 12 เดือน ณ วันที่พิมพ์ (unverified: ต้องสืบราคาใหม่)
   staleDetail: string; // เช่น "ราคาอ้างอิงเดือน 9/2568 — เก่ากว่า 12 เดือน (14 เดือน)"
-  publicationCancelled: boolean; // true = ราคา สนค. เขตส่วนกลาง เดือนที่ยกเลิกเผยแพร่ราคาส่วนกลาง (unverified)
+  notYetPublished: boolean; // true = ราคา สนค. เขตส่วนกลาง เดือนอ้างอิง ≥ เดือนที่พิมพ์ — ณ วันพิมพ์ยังไม่ปรากฏราคาในระบบ สนค. (unverified)
 };
 
 // ส่วนท้ายชิ้น 9 — บันทึกเหตุผล/รายละเอียดการสืบราคา "ค่าติดตั้งครุภัณฑ์" (แยกจากราคาครุภัณฑ์ — เล่ม 2 ข้อ 2.2/ข้อ 8)
@@ -526,19 +521,19 @@ export function buildReg2569Report(
   }
 
   // — ชิ้น 9: บันทึกเหตุผลการสืบและกำหนดราคาวัสดุก่อสร้าง (รายการงานก่อสร้าง — ครุภัณฑ์อยู่ใน ปร.2) —
-  // B3: flag ราคาเก่า >12 เดือน (นับจากเดือนอ้างอิงราคาถึงวันที่พิมพ์) และเดือนที่ สนค. ยกเลิกเผยแพร่ราคาส่วนกลาง
+  // B3: flag ราคาเก่า >12 เดือน (นับจากเดือนอ้างอิงราคาถึงวันที่พิมพ์) และราคา สนค. ส่วนกลางที่เดือนอ้างอิง ≥ เดือนพิมพ์ (กฎปฏิทิน)
   const nowD = now;
   const priceEvidence: PriceEvidenceRow[] = [];
   let unstatedCount = 0;
   let staleCount = 0;
-  let cancelledCount = 0;
+  let notYetPublishedCount = 0;
   construction.forEach((it, i) => {
     const s = it.source;
     let origin: string;
     let unstated = false;
     let stale = false;
     let staleDetail = "";
-    let cancelled = false;
+    let notYetPublished = false;
     if (!s) {
       origin = "ไม่ระบุแหล่งที่มาราคา — ต้องบันทึกเหตุผลและรายละเอียดการสืบราคาก่อนใช้จริง";
       unstated = true;
@@ -555,13 +550,14 @@ export function buildReg2569Report(
         staleDetail = `ราคาอ้างอิง${s.month ? `เดือน ${s.month}/${s.year}` : `ปี ${s.year}`} — เก่ากว่า 12 เดือน (${months} เดือน ณ วันที่พิมพ์)`;
         staleCount++;
       }
-      cancelled =
+      // กฎปฏิทิน: เดือนอ้างอิง ≥ เดือนที่พิมพ์ = ณ วันพิมพ์ยังไม่ปรากฏราคาส่วนกลางในระบบ สนค.
+      notYetPublished =
         s.prov === TPSO_CENTRAL_TYPE &&
         s.month !== null &&
-        TPSO_CENTRAL_CANCELLED.some((c) => c.year === s.year && c.month === s.month);
-      if (cancelled) {
-        cancelledCount++;
-        origin += " · ⚠ เดือนนี้ สนค. ยกเลิกเผยแพร่ราคาส่วนกลาง — unverified (ตรวจราคาจากเขตจังหวัด/สืบราคาแทน)";
+        calendarMonthsBetween(refDate, nowD) <= 0;
+      if (notYetPublished) {
+        notYetPublishedCount++;
+        origin += " · ⚠ เดือนอ้างอิงยังไม่ปรากฏราคาส่วนกลางในระบบ สนค. ณ วันที่พิมพ์ — unverified (ตรวจราคาจากเขตจังหวัด/สืบราคาแทน)";
       }
     } else {
       origin = `คลังราคาของฉัน — หมวด ${s.category} · ราคา ณ ${fmtDate(s.priceAgeRef)} · เลือกเมื่อ ${fmtDate(s.pickedAt)}`;
@@ -586,7 +582,7 @@ export function buildReg2569Report(
       unstated,
       stale,
       staleDetail,
-      publicationCancelled: cancelled,
+      notYetPublished,
     });
   });
   if (unstatedCount > 0) {
@@ -599,9 +595,9 @@ export function buildReg2569Report(
       `${staleCount} รายการมีอายุราคาเก่ากว่า 12 เดือน (แสดงป้ายในชิ้นที่ 9) — ควรสืบราคาใหม่หรือตรวจสอบความเที่ยงตรงก่อนใช้จริง (unverified)`,
     );
   }
-  if (cancelledCount > 0) {
+  if (notYetPublishedCount > 0) {
     warnings.push(
-      `${cancelledCount} รายการอ้างราคา สนค. เขตส่วนกลาง เดือนที่ สนค. ยกเลิกเผยแพร่ราคาส่วนกลาง (แสดงป้ายในชิ้นที่ 9) — ราคาเหล่านี้ unverified; ใช้ราคารายจังหวัดหรือสืบราคาแทน (ตรวจประกาศ สนค. ฉบับล่าสุดด้วย)`,
+      `${notYetPublishedCount} รายการอ้างราคา สนค. เขตส่วนกลาง เดือนอ้างอิงเท่ากับหรือหลังเดือนที่พิมพ์ (ณ วันพิมพ์ยังไม่ปรากฏราคาส่วนกลางในระบบ สนค. — แสดงป้ายในชิ้นที่ 9) — ราคาเหล่านี้ unverified; ใช้ราคารายจังหวัดหรือสืบราคาแทน`,
     );
   }
 

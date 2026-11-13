@@ -878,7 +878,7 @@ function buildSheets({
                 <td className={td}>
                   {r.origin}
                   {r.stale && <div>⚠ {r.staleDetail} — unverified</div>}
-                  {r.publicationCancelled && <div>⚠ เดือนอ้างอิงเป็นเดือนที่ สนค. ยกเลิกเผยแพร่ราคาส่วนกลาง — unverified</div>}
+                  {r.notYetPublished && <div>⚠ เดือนอ้างอิงเท่ากับหรือหลังเดือนที่พิมพ์ — ณ วันพิมพ์ยังไม่ปรากฏราคาส่วนกลางของ สนค. ในระบบ — unverified</div>}
                 </td>
                 <td className={td}>{r.reason || (r.unstated ? "ต้องกรอกเหตุผลการสืบราคา" : "")}</td>
               </tr>

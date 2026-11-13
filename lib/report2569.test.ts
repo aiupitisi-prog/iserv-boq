@@ -468,12 +468,44 @@ describe("buildReg2569Report (ชุด 9 ชิ้น)", () => {
     const row = rep13.priceEvidence[0];
     expect(row.stale).toBe(true); // มิ.ย. 2568 → พ.ย. 2569 = 17 เดือน
     expect(row.staleDetail).toContain("17 เดือน");
-    expect(row.publicationCancelled).toBe(false);
+    expect(row.notYetPublished).toBe(false); // เดือนอ้างอิงอดีต = มีราคาในระบบแล้ว
     expect(rep13.warnings.some((w) => w.includes("เก่ากว่า 12 เดือน"))).toBe(true);
   });
 
-  it("B3 — ราคา สนค. เขตส่วนกลาง เดือนที่ยกเลิกเผยแพร่ (เม.ย. 2569) → ป้าย unverified + เตือน", () => {
+  it("B3 — ราคา สนค. เขตส่วนกลาง เดือนอ้างอิง = เดือนพิมพ์ (พ.ย. 2569) → ป้าย unverified + เตือน", () => {
     const proj14 = project({
+      items: [
+        item({
+          section: "งานโครงสร้าง", qty: 1, price: 100, matPrice: 100,
+          source: { kind: "tpso", code: "C1", prov: "10", provName: "ส่วนกลาง", year: 2569, month: 11, priceAtPick: 100, pickedAt: "2026-11-01T00:00:00.000Z" },
+        }),
+      ],
+    });
+    const calc14 = computeGovBOQ(proj14, TEST_RULESET);
+    const rep14 = buildReg2569Report(proj14, TEST_RULESET, calc14, NOW);
+    expect(rep14.priceEvidence[0].notYetPublished).toBe(true);
+    expect(rep14.priceEvidence[0].origin).toContain("ยังไม่ปรากฏราคาส่วนกลาง");
+    expect(rep14.priceEvidence[0].stale).toBe(false); // เดือนเดียวกับวันพิมพ์ — ยังไม่เก่า
+    expect(rep14.warnings.some((w) => w.includes("ยังไม่ปรากฏราคาส่วนกลาง"))).toBe(true);
+  });
+
+  it("B3 — ราคา สนค. เขตส่วนกลาง เดือนอ้างอิงอนาคต (ธ.ค. 2569) → ป้าย unverified", () => {
+    const proj16 = project({
+      items: [
+        item({
+          section: "งานโครงสร้าง", qty: 1, price: 100, matPrice: 100,
+          source: { kind: "tpso", code: "C1", prov: "10", provName: "ส่วนกลาง", year: 2569, month: 12, priceAtPick: 100, pickedAt: "2026-11-01T00:00:00.000Z" },
+        }),
+      ],
+    });
+    const calc16 = computeGovBOQ(proj16, TEST_RULESET);
+    const rep16 = buildReg2569Report(proj16, TEST_RULESET, calc16, NOW);
+    expect(rep16.priceEvidence[0].notYetPublished).toBe(true);
+    expect(rep16.priceEvidence[0].stale).toBe(false);
+  });
+
+  it("B3 — ราคา สนค. เขตส่วนกลาง เดือนอ้างอิงอดีต (เม.ย. 2569) → ไม่ป้าย (กฎปฏิทินแทนรายชื่อเดือนตายตัว)", () => {
+    const proj17 = project({
       items: [
         item({
           section: "งานโครงสร้าง", qty: 1, price: 100, matPrice: 100,
@@ -481,12 +513,11 @@ describe("buildReg2569Report (ชุด 9 ชิ้น)", () => {
         }),
       ],
     });
-    const calc14 = computeGovBOQ(proj14, TEST_RULESET);
-    const rep14 = buildReg2569Report(proj14, TEST_RULESET, calc14, NOW);
-    expect(rep14.priceEvidence[0].publicationCancelled).toBe(true);
-    expect(rep14.priceEvidence[0].origin).toContain("ยกเลิกเผยแพร่ราคาส่วนกลาง");
-    expect(rep14.priceEvidence[0].stale).toBe(false); // เม.ย. 2569 → 7 เดือน ยังไม่เก่า
-    expect(rep14.warnings.some((w) => w.includes("ยกเลิกเผยแพร่"))).toBe(true);
+    const calc17 = computeGovBOQ(proj17, TEST_RULESET);
+    const rep17 = buildReg2569Report(proj17, TEST_RULESET, calc17, NOW);
+    // เม.ย. 2569 เป็นอดีต — ตรวจระบบ สนค. จริง 13 พ.ย. 2569 พบราคาส่วนกลางเดือนนี้มีจริง (4,462 รายการ)
+    expect(rep17.priceEvidence[0].notYetPublished).toBe(false);
+    expect(rep17.warnings.some((w) => w.includes("ยังไม่ปรากฏราคาส่วนกลาง"))).toBe(false);
   });
 
   it("F6/B3 — คลังส่วนตัวหมวด 'ค่าแรง': แยก ข. ทั้งหมด + พิมพ์ note ที่มาราคา + ป้ายราคาเก่า", () => {
