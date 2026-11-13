@@ -4,7 +4,7 @@
 // - ระบบตรวจ "โครงสร้าง/ความสมเหตุสมผลของตาราง" เท่านั้น — ไม่ตรวจว่าตัวเลขถูกตามกฎหมาย
 //   (ผู้นำเข้าต้องอ้างเอกสารต้นทางเอง — sourceDoc บังคับ)
 // - checksum ผูกกับเนื้อหาตาราง (รวมชุดตาราง factorFTables ของ ว 481) — แก้ไฟล์ภายหลัง = ตรวจพบ
-import type { FactorFTable, Ruleset, TransportSchedule, WageSchedule, WorkTypeCode } from "./ruleset";
+import type { FactorFTable, MachineryRateSchedule, Ruleset, TransportSchedule, WageSchedule, WorkTypeCode } from "./ruleset";
 import { computeChecksum, rulesetChecksum, validateFactorFTable } from "./ruleset";
 
 const WORK_TYPES: readonly WorkTypeCode[] = ["building", "road", "bridge", "irrigation"];
@@ -160,6 +160,114 @@ function transportScheduleError(s: TransportSchedule, where = "transportSchedule
   return null;
 }
 
+// ตรวจโครงสร้างตารางค่าดำเนินการ/ค่าเสื่อมราคา (ว 475) — โครงสร้าง/ความสอดคล้องภายในเท่านั้น
+// เข้มเท่ากับ parser (scripts/parse-w475.mjs): เงินเป็นสตางค์จำนวนเต็ม > 0, 5 คอลัมน์ยาวเท่า items,
+// บรรทัดราคาเต็มต้องเป็น operation + dep = total (ทั้งปกติ/ฝนชุก), บรรทัดค่าก้อนเดียวมีเฉพาะค่าดำเนินการ,
+// บรรทัดหัวเรื่องไม่มีราคา, ช่วงน้ำมันต่อเนื่อง, ค่าเสื่อมราคาคงที่ทุกช่วง, ค่าดำเนินการไม่ลดลงเมื่อน้ำมันแพงขึ้น
+// หมายเหตุ: bands = [] ถือว่า "ไม่ระบุตาราง" (ไม่ใช่โครงสร้างผิด) — prepareImport จะตัดทิ้ง
+function machineryScheduleError(s: MachineryRateSchedule, where = "machinerySchedule"): string | null {
+  if (typeof s !== "object" || s === null || Array.isArray(s))
+    return `${where} ไม่ถูกต้อง — ต้องเป็น object { titlePrinted, fuelPriceBasis, items, bands, unit }`;
+  if (!Array.isArray(s.items)) return `${where}.items ต้องเป็น array ของบรรทัดรายการ`;
+  if (!Array.isArray(s.bands)) return `${where}.bands ต้องเป็น array ของช่วงราคาน้ำมัน`;
+  if (s.bands.length === 0) return null;
+  if (s.unit !== "satang") return `${where}.unit ต้องเป็น "satang" (ชุดนี้เก็บจำนวนเงินเป็นสตางค์จำนวนเต็ม)`;
+  if (typeof s.titlePrinted !== "string" || !s.titlePrinted.trim())
+    return `${where}.titlePrinted ต้องเป็นข้อความหัวตารางตามที่พิมพ์`;
+  if (typeof s.fuelPriceBasis !== "string" || !s.fuelPriceBasis.trim())
+    return `${where}.fuelPriceBasis ต้องเป็นข้อความระบุฐานราคาน้ำมันตามหัวตาราง`;
+  if (s.items.length === 0) return `${where}.items ต้องมีอย่างน้อย 1 บรรทัด`;
+
+  const seen = new Set<string>();
+  for (let i = 0; i < s.items.length; i++) {
+    const it = s.items[i];
+    const w = `${where}.items[${i}]`;
+    if (typeof it !== "object" || it === null || Array.isArray(it)) return `${w} ไม่ถูกต้อง — ต้องเป็น object ของบรรทัดรายการ`;
+    if (!Number.isInteger(it.entryNo) || it.entryNo <= 0) return `${w}.entryNo ต้องเป็นจำนวนเต็มบวก (ลำดับในเอกสาร)`;
+    if (typeof it.entryName !== "string" || !it.entryName.trim()) return `${w}.entryName ต้องเป็นข้อความชื่อลำดับ`;
+    if (typeof it.label !== "string" || !it.label.trim()) return `${w}.label ต้องเป็นข้อความชื่อบรรทัด`;
+    if (it.unit !== null && (typeof it.unit !== "string" || !it.unit.trim()))
+      return `${w}.unit ต้องเป็นข้อความหน่วย หรือ null (ต้นฉบับไม่พิมพ์หน่วย)`;
+    if (it.priced !== "five" && it.priced !== "lump" && it.priced !== "none")
+      return `${w}.priced ต้องเป็น "five" | "lump" | "none"`;
+    if (!Number.isInteger(it.occurrence) || it.occurrence <= 0) return `${w}.occurrence ต้องเป็นจำนวนเต็มบวก`;
+    if (it.priced !== "none" && it.unit === null) return `${w}: "${it.label}" มีราคาแต่ไม่มีหน่วย — ต้นฉบับต้องพิมพ์หน่วย`;
+    if (it.priced === "none" && it.unit !== null) return `${w}: "${it.label}" ไม่มีราคาแต่มีหน่วย — โครงสร้างไม่ตรงต้นฉบับ`;
+    const key = `${it.entryNo}|${it.label}|${it.occurrence}`;
+    if (seen.has(key)) return `${w}: รายการซ้ำ (ลำดับ ${it.entryNo} · ${it.label} · ครั้งที่ ${it.occurrence}) — ค้นหาไม่ชัดเจน`;
+    seen.add(key);
+  }
+
+  const COLS = ["operationSatang", "depNormalSatang", "depRainySatang", "totalNormalSatang", "totalRainySatang"] as const;
+  const n = s.items.length;
+  let prevMax = -Infinity;
+  for (let j = 0; j < s.bands.length; j++) {
+    const b = s.bands[j];
+    const bw = `${where}.bands[${j}]`;
+    if (typeof b !== "object" || b === null || Array.isArray(b)) return `${bw} ไม่ถูกต้อง — ต้องเป็น object ของช่วงราคาน้ำมัน`;
+    if (!Number.isInteger(b.fuelMinSatang) || b.fuelMinSatang <= 0) return `${bw}.fuelMinSatang ต้องเป็นจำนวนเต็มบวก (สตางค์/ลิตร)`;
+    if (!Number.isInteger(b.fuelMaxSatang) || b.fuelMaxSatang <= 0) return `${bw}.fuelMaxSatang ต้องเป็นจำนวนเต็มบวก (สตางค์/ลิตร)`;
+    if (!(b.fuelMaxSatang > b.fuelMinSatang)) return `${bw}: fuelMaxSatang ต้องมากกว่า fuelMinSatang`;
+    if (j > 0 && b.fuelMinSatang !== prevMax + 1)
+      return `${bw}: ช่วงราคาน้ำมันไม่ต่อเนื่อง (ช่วงก่อนหน้าจบ ${prevMax} แต่ช่วงนี้เริ่ม ${b.fuelMinSatang})`;
+    prevMax = b.fuelMaxSatang;
+    if (!Array.isArray(b.sourcePages) || b.sourcePages.length !== 2 || b.sourcePages.some((p) => !Number.isInteger(p) || p <= 0))
+      return `${bw}.sourcePages ต้องเป็น [หน้าแรก, หน้าที่สอง] ของ PDF ต้นฉบับ`;
+    if (!(b.sourcePages[0] < b.sourcePages[1]))
+      return `${bw}.sourcePages ต้องเรียงจากน้อยไปมาก (หน้าแรก ${b.sourcePages[0]} < หน้าที่สอง ${b.sourcePages[1]})`;
+    if (j > 0 && b.sourcePages[0] !== s.bands[j - 1].sourcePages[1] + 1)
+      return `${bw}.sourcePages ไม่ต่อเนื่องจากช่วงก่อนหน้า (${s.bands[j - 1].sourcePages[1]} → ${b.sourcePages[0]})`;
+    for (const c of COLS) {
+      if (!Array.isArray(b[c])) return `${bw}.${c} ต้องเป็น array ของราคา (length = items)`; 
+      if (b[c].length !== n) return `${bw}.${c} ต้องมี ${n} ค่า (ตามจำนวน items) แต่พบ ${b[c].length}`;
+      for (let k = 0; k < n; k++) {
+        const v = b[c][k];
+        if (v !== null && (!Number.isInteger(v) || v <= 0)) return `${bw}.${c}[${k}] ต้องเป็นจำนวนเต็มบวก (สตางค์) หรือ null`;
+      }
+    }
+    for (let k = 0; k < n; k++) {
+      const it = s.items[k];
+      const [op, dn, dr, tn, tr] = COLS.map((c) => b[c][k]);
+      if (it.priced === "five") {
+        if (op === null || dn === null || dr === null || tn === null || tr === null)
+          return `${bw}: "${it.label}" (ราคา 5 ค่า) ต้องมีครบทั้ง 5 คอลัมน์`;
+        if (op + dn !== tn) return `${bw}: "${it.label}" — ค่าดำเนินการ ${op} + ค่าเสื่อมราคาปกติ ${dn} ≠ รวมปกติ ${tn} (สตางค์)`;
+        if (op + dr !== tr) return `${bw}: "${it.label}" — ค่าดำเนินการ ${op} + ค่าเสื่อมราคาฝนชุก ${dr} ≠ รวมฝนชุก ${tr} (สตางค์)`;
+        if (dr < dn) return `${bw}: "${it.label}" — ค่าเสื่อมราคาฝนชุก (${dr}) ต้องไม่น้อยกว่าปกติ (${dn})`;
+      } else if (it.priced === "lump") {
+        if (op === null) return `${bw}: "${it.label}" (ค่าก้อนเดียว) ต้องมีค่าดำเนินการ`;
+        if (dn !== null || dr !== null || tn !== null || tr !== null)
+          return `${bw}: "${it.label}" (ค่าก้อนเดียว) ต้องมีเฉพาะค่าดำเนินการ ช่องอื่นต้องเป็น null`;
+      } else if (op !== null || dn !== null || dr !== null || tn !== null || tr !== null) {
+        return `${bw}: "${it.label}" (หัวเรื่องไม่มีราคา) ต้องเป็น null ทุกช่อง`;
+      }
+    }
+  }
+
+  // ข้ามช่วงน้ำมัน: ค่าเสื่อมราคา/ค่าก้อนเดียวคงที่ · ค่าดำเนินการไม่ลดลงเมื่อน้ำมันแพงขึ้น
+  const first = s.bands[0];
+  for (let k = 0; k < n; k++) {
+    const it = s.items[k];
+    if (it.priced === "none") continue;
+    if (it.priced === "lump") {
+      if (s.bands.some((b) => b.operationSatang[k] !== first.operationSatang[k]))
+        return `${where}: "${it.label}" (ค่าก้อนเดียว) เปลี่ยนค่าระหว่างช่วงราคาน้ำมัน — ต้นฉบับต้องคงที่`;
+      continue;
+    }
+    if (s.bands.some((b) => b.depNormalSatang[k] !== first.depNormalSatang[k]))
+      return `${where}: "${it.label}" — ค่าเสื่อมราคาปกติไม่คงที่ข้ามช่วงราคาน้ำมัน — ต้นฉบับต้องคงที่`;
+    if (s.bands.some((b) => b.depRainySatang[k] !== first.depRainySatang[k]))
+      return `${where}: "${it.label}" — ค่าเสื่อมราคาฝนชุกไม่คงที่ข้ามช่วงราคาน้ำมัน — ต้นฉบับต้องคงที่`;
+    for (let j = 1; j < s.bands.length; j++) {
+      const prev = s.bands[j - 1].operationSatang[k] as number;
+      const cur = s.bands[j].operationSatang[k] as number;
+      if (cur < prev)
+        return `${where}: "${it.label}" — ค่าดำเนินการลดลงเมื่อราคาน้ำมันแพงขึ้น (ช่วง ${s.bands[j].fuelMinSatang}: ${prev} → ${cur} สตางค์)`;
+    }
+  }
+  return null;
+}
+
 // ตรวจพารามิเตอร์หัวตาราง (ตัวเลขครบ) — where เช่น "factorF" หรือ "factorFTables[3]"
 function headerError(t: FactorFTable, where: string): string | null {
   for (const k of ["advancePct", "retentionPct", "interestPct", "vatPct"] as const) {
@@ -270,6 +378,28 @@ export async function prepareImport(raw: string): Promise<{ rs: Ruleset; note: s
     throw new Error("ไฟล์ระบุ transportScheduleChecksum (checksum ของตารางค่าขนส่ง) แต่ไม่พบ transportSchedule — ไฟล์อาจถูกตัดหรือแก้ไข ห้ามนำเข้า");
   }
 
+  // — ตารางค่าดำเนินการ/ค่าเสื่อมราคา (machinerySchedule) — รูปแบบตาราง ว 475 (ตรวจโครงสร้าง ไม่ตรวจค่ากฎหมาย) —
+  // ว่าง (bands array ว่าง) = ถือว่าไม่ระบุ — ตัดทิ้งเพื่อให้ checksum เทียบเท่าแบบไม่มีตาราง
+  let machinerySchedule: MachineryRateSchedule | undefined;
+  let machineryNote = "";
+  const fileMachineryChecksum =
+    typeof data.machineryScheduleChecksum === "string" && data.machineryScheduleChecksum ? data.machineryScheduleChecksum : undefined;
+  if (data.machinerySchedule !== undefined && data.machinerySchedule !== null) {
+    const s = data.machinerySchedule as MachineryRateSchedule;
+    const err = machineryScheduleError(s);
+    if (err) throw new Error(err);
+    if (s.bands.length > 0) {
+      // ตรึงข้อมูลลึก — checksum ผูกกับเนื้อหาตอน import; แก้ภายหลัง = checksum ไม่ตรงกับข้อมูลจริง
+      machinerySchedule = deepFreeze(s);
+      machineryNote = `ไฟล์มีตารางค่าดำเนินการ/ค่าเสื่อมราคา (machinerySchedule) ${s.items.length} บรรทัด × ${s.bands.length} ช่วงราคาน้ำมัน — จำนวนเงินเป็นสตางค์ · ต้องยืนยันตัวเลขกับเอกสารต้นทางก่อนใช้คำนวณจริง`;
+    } else {
+      machineryNote = "ไฟล์ระบุ machinerySchedule ว่าง (bands = []) — ถือว่าไม่ระบุตาราง ตัดทิ้งเพื่อให้ checksum เทียบเท่าแบบไม่มีตาราง";
+    }
+  }
+  if (fileMachineryChecksum && !machinerySchedule) {
+    throw new Error("ไฟล์ระบุ machineryScheduleChecksum (checksum ของตารางค่าดำเนินการ/ค่าเสื่อมราคา) แต่ไม่พบ machinerySchedule — ไฟล์อาจถูกตัดหรือแก้ไข ห้ามนำเข้า");
+  }
+
   for (const k of ["contingencyPct", "swcPct", "durableHandlingPct"] as const) {
     if (data[k] !== undefined && data[k] !== null && typeof data[k] !== "number") throw new Error(`${k} ต้องเป็นตัวเลข (ถ้ามี)`);
   }
@@ -340,11 +470,27 @@ export async function prepareImport(raw: string): Promise<{ rs: Ruleset; note: s
     notes.push("ระบบคำนวณ transportScheduleChecksum ของตารางค่าขนส่งให้ใหม่ (ป้องกันการตัดตารางออกจากไฟล์ภายหลัง)");
   }
 
+  // machineryScheduleChecksum — pattern เดียวกัน ผูกตารางค่าดำเนินการ/ค่าเสื่อมราคา (ว 475)
+  let machineryScheduleChecksum: string | undefined;
+  if (fileMachineryChecksum && machinerySchedule) {
+    const actual = await computeChecksum(machinerySchedule);
+    if (actual !== fileMachineryChecksum) {
+      throw new Error(
+        `machineryScheduleChecksum ไม่ตรงกับตารางค่าดำเนินการ/ค่าเสื่อมราคา (ไฟล์: ${fileMachineryChecksum.slice(0, 8)}… / คำนวณใหม่: ${actual.slice(0, 8)}…) — ตารางอาจถูกแก้ภายหลัง ห้ามนำเข้า`,
+      );
+    }
+    machineryScheduleChecksum = fileMachineryChecksum;
+  } else if (machinerySchedule) {
+    machineryScheduleChecksum = await computeChecksum(machinerySchedule);
+    notes.push("ระบบคำนวณ machineryScheduleChecksum ของตารางค่าดำเนินการ/ค่าเสื่อมราคาให้ใหม่ (ป้องกันการตัดตารางออกจากไฟล์ภายหลัง)");
+  }
+
   const draft = {
     factorF: factorF ?? null,
     factorFTables,
     wageSchedule,
     transportSchedule,
+    machinerySchedule,
     labor: (data.labor as Ruleset["labor"]) ?? null,
     contingencyPct: (data.contingencyPct as number | undefined) ?? null,
     swcPct: (data.swcPct as number | undefined) ?? null,
@@ -363,6 +509,7 @@ export async function prepareImport(raw: string): Promise<{ rs: Ruleset; note: s
   if (setNote) notes.push(setNote);
   if (wageNote) notes.push(wageNote);
   if (transportNote) notes.push(transportNote);
+  if (machineryNote) notes.push(machineryNote);
 
   const rs: Ruleset = {
     id: String(data.id ?? "").trim() || globalThis.crypto?.randomUUID?.() || `rs-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`,
@@ -378,6 +525,8 @@ export async function prepareImport(raw: string): Promise<{ rs: Ruleset; note: s
     wageScheduleChecksum,
     transportSchedule,
     transportScheduleChecksum,
+    machinerySchedule,
+    machineryScheduleChecksum,
     labor: draft.labor ?? undefined,
     contingencyPct: draft.contingencyPct ?? undefined,
     swcPct: draft.swcPct ?? undefined,

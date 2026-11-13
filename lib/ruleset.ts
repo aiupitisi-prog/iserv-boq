@@ -57,6 +57,8 @@ export type Ruleset = {
   wageScheduleChecksum?: string; // checksum ของ wageSchedule (กันการตัดชุดออกจากไฟล์ภายหลัง — pattern เดียวกับ setChecksum)
   transportSchedule?: TransportSchedule; // ตารางค่าขนส่งวัสดุก่อสร้าง (กค 0433.2/ว 477) — 3 ประเภทารถ × 45 ช่วงน้ำมัน × ระยะ 1–200 กม.
   transportScheduleChecksum?: string; // checksum ของ transportSchedule (กันการตัดตารางออกจากไฟล์ภายหลัง)
+  machinerySchedule?: MachineryRateSchedule; // ตารางค่าดำเนินการ+ค่าเสื่อมราคาเครื่องจักร (กค 0433.2/ว 475) — 20 ลำดับ × 45 ช่วงน้ำมัน
+  machineryScheduleChecksum?: string; // checksum ของ machinerySchedule (กันการตัดตารางออกจากไฟล์ภายหลัง)
   setChecksum?: string; // checksum ของ factorFTables (array เปล่า ๆ ไม่รวมส่วนอื่น) — กันการตัดชุดตารางออกจากไฟล์ภายหลัง; ตรวจตอน import เมื่อมีฟิลด์นี้ (ไฟล์เก่าที่ไม่มี = ไม่ตรวจ)
   labor?: { minPct: number; maxPct: number }; // ช่วง % ค่าแรง เช่น 30–37 — จากเอกสารทางการเท่านั้น
   // ที่มาของชุดกฎ — ใช้เตือนผู้ใช้/เอกสารพิมพ์ว่าไฟล์ต้นทางยังไม่ยืนยันกับราชกิจจานุเบกษา
@@ -136,6 +138,39 @@ export type TransportSchedule = {
   conditions: string[];
   fuelPriceBasis: string; // ฐานราคาน้ำมันตามหัวตาราง เช่น "ราคาน้ำมันดีเซล ที่ อำเภอเมือง"
   notices: string[]; // หมายเหตุคงที่ของตาราง (การคูณระยะทาง / หัวข้อค่าเฉลี่ยน้ำมัน)
+  unit: "satang"; // ป้ายหน่วยเงินของทั้งชุด — กันการอ่านเป็นบาทโดยไม่ตั้งใจ
+};
+
+// — ตารางค่าดำเนินการและค่าเสื่อมราคา (กค 0433.2/ว 475) — โครงสร้างถอดจากเอกสารจริง ผ่าน parser scripts/parse-w475.mjs
+// ⚠️ ทุกจำนวนเงินในชุดนี้เป็น "สตางค์" จำนวนเต็ม (ตัวประกาศพิมพ์บาททศนิยม 2 ตำแหน่ง → ×100 ตรงตัว ไม่ปัดเศษ)
+//    ราคาน้ำมันก็เก็บเป็นสตางค์ (25.00 บาท/ลิตร = 2500)
+export type MachineryRateItem = {
+  entryNo: number; // ลำดับในเอกสาร (1–20)
+  entryName: string; // ชื่อลำดับ เช่น "งานดินคันทาง"
+  label: string; // ชื่อบรรทัดตามที่พิมพ์ (บรรทัดลำดับเอง = entryName)
+  unit: string | null; // หน่วยตามที่พิมพ์ ("ตร.ม." / "ลบ.ม. แน่น" / …) — null เมื่อต้นฉบับไม่พิมพ์หน่วย
+  // five = มีราคา 5 ค่า · lump = ค่าก้อนเดียว (บาทเต็ม/ครั้ง) · none = บรรทัดหัวเรื่องที่ต้นฉบับไม่พิมพ์ราคา
+  priced: "five" | "lump" | "none";
+  occurrence: number; // ครั้งที่ของ (entryNo, label) ภายในลำดับ — ต้นฉบับพิมพ์ชื่อซ้ำได้ (เช่น "- ดันและตัก")
+};
+
+export type MachineryRateBand = {
+  fuelMinSatang: number; // ขอบล่างช่วงราคาน้ำมันดีเซล (สตางค์/ลิตร) เช่น 2500 = 25.00
+  fuelMaxSatang: number; // ขอบบน เช่น 2599 = 25.99
+  // 5 อาร์เรย์ index ตรงกับ schedule.items — ช่องที่เป็น null = บรรทัดนั้นไม่มีราคาในคอลัมน์นั้น
+  operationSatang: (number | null)[]; // ค่าดำเนินการ
+  depNormalSatang: (number | null)[]; // ค่าเสื่อมราคา — สภาพปกติ
+  depRainySatang: (number | null)[]; // ค่าเสื่อมราคา — สภาพฝนชุก
+  totalNormalSatang: (number | null)[]; // รวมค่างาน — ปกติ (= operation + depNormal ตามที่พิมพ์)
+  totalRainySatang: (number | null)[]; // รวมค่างาน — ฝนชุก (= operation + depRainy ตามที่พิมพ์)
+  sourcePages: [number, number]; // เลขหน้าใน PDF ต้นฉบับ (หน้าแรกของช่วง, หน้าที่สอง)
+};
+
+export type MachineryRateSchedule = {
+  titlePrinted: string; // หัวตารางตามที่พิมพ์
+  fuelPriceBasis: string; // ฐานราคาน้ำมันตามหัวตาราง เช่น "อำเภอเมือง" (ราคาน้ำมันดีเซล ที่ …)
+  items: MachineryRateItem[];
+  bands: MachineryRateBand[]; // ช่วงราคาน้ำมัน เรียงจากน้อยไปมาก
   unit: "satang"; // ป้ายหน่วยเงินของทั้งชุด — กันการอ่านเป็นบาทโดยไม่ตั้งใจ
 };
 
@@ -290,6 +325,7 @@ export async function rulesetChecksum(
     factorFTables?: FactorFTable[] | null;
     wageSchedule?: WageSchedule | null;
     transportSchedule?: TransportSchedule | null;
+    machinerySchedule?: MachineryRateSchedule | null;
     labor?: { minPct: number; maxPct: number } | null;
     contingencyPct?: number | null;
     swcPct?: number | null;
@@ -317,6 +353,10 @@ export async function rulesetChecksum(
     rs.transportSchedule.sections.length > 0
   ) {
     canonical.transportSchedule = rs.transportSchedule;
+  }
+  // ตารางค่าดำเนินการ/ค่าเสื่อมราคาเครื่องจักร (ว 475) — เงื่อนไขเดียวกัน: ใส่เมื่อมีเท่านั้น
+  if (rs.machinerySchedule !== undefined && rs.machinerySchedule !== null && rs.machinerySchedule.bands.length > 0) {
+    canonical.machinerySchedule = rs.machinerySchedule;
   }
   return computeChecksum(canonical);
 }
@@ -413,4 +453,59 @@ export function transportBandNotices(schedule: TransportSchedule, band: Transpor
     else if (/เชื้อเพลิงเฉลี่ย/.test(text)) out[i] = `${text} — ${avgFuel}`;
   }
   return out;
+}
+
+// — ตัวช่วยอ่านตารางค่าดำเนินการ/ค่าเสื่อมราคา (ว 475) — pure เท่านั้น ไม่มี I/O —
+
+// เลือกช่วงราคาน้ำมันที่ครอบราคาที่ระบุ (สตางค์/ลิตร) — ช่วงปิดทั้งสองด้านตามที่พิมพ์ (25.00–25.99)
+// ⚠️ นอกราคาที่ตารางครอบ (25.00–69.99) คืน null — ห้ามประมาณ/extrapolate เอง
+export function findMachineryBand(
+  schedule: MachineryRateSchedule,
+  fuelPriceSatang: number,
+): MachineryRateBand | null {
+  if (!Number.isFinite(fuelPriceSatang)) return null;
+  return (
+    schedule.bands.find((b) => fuelPriceSatang >= b.fuelMinSatang && fuelPriceSatang <= b.fuelMaxSatang) ?? null
+  );
+}
+
+// หาบรรทัดรายการจาก (ลำดับ, ชื่อบรรทัด) — occurrence ใช้เมื่อต้นฉบับพิมพ์ชื่อซ้ำภายในลำดับเดียว
+// (เช่น "- ดันและตัก" ในลำดับ 3 มี 2 ครั้ง) · ไม่ระบุ occurrence = ครั้งแรก · ไม่พบคืน null
+export function findMachineryItem(
+  schedule: MachineryRateSchedule,
+  q: { entryNo: number; label: string; occurrence?: number },
+): MachineryRateItem | null {
+  const want = q.occurrence ?? 1;
+  return (
+    schedule.items.find((i) => i.entryNo === q.entryNo && i.label === q.label && i.occurrence === want) ?? null
+  );
+}
+
+export type MachineryRate = {
+  itemIndex: number;
+  operationSatang: number | null; // ค่าดำเนินการ
+  depNormalSatang: number | null; // ค่าเสื่อมราคา (ปกติ)
+  depRainySatang: number | null; // ค่าเสื่อมราคา (ฝนชุก)
+  totalNormalSatang: number | null; // รวมค่างาน (ปกติ) — ตามที่พิมพ์
+  totalRainySatang: number | null; // รวมค่างาน (ฝนชุก) — ตามที่พิมพ์
+};
+
+// ค่าของบรรทัดรายการหนึ่ง ณ ช่วงน้ำมันหนึ่ง — คืน null เมื่อ item ไม่ได้อยู่ใน schedule
+// ⚠️ บรรทัด "none" (หัวเรื่อง) คืน object ที่ทุกช่องเป็น null — ผู้เรียกต้องเช็คก่อนใช้คำนวณ
+//    บรรทัด "lump" (ค่าติดตั้งเครื่องผสม) มีเฉพาะ operationSatang (บาทเต็ม × 100 ตามที่พิมพ์)
+export function machineryRateAt(
+  schedule: MachineryRateSchedule,
+  band: MachineryRateBand,
+  item: MachineryRateItem,
+): MachineryRate | null {
+  const itemIndex = schedule.items.indexOf(item);
+  if (itemIndex < 0) return null;
+  return {
+    itemIndex,
+    operationSatang: band.operationSatang[itemIndex] ?? null,
+    depNormalSatang: band.depNormalSatang[itemIndex] ?? null,
+    depRainySatang: band.depRainySatang[itemIndex] ?? null,
+    totalNormalSatang: band.totalNormalSatang[itemIndex] ?? null,
+    totalRainySatang: band.totalRainySatang[itemIndex] ?? null,
+  };
 }
