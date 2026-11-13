@@ -4,10 +4,73 @@
 // - ระบบตรวจ "โครงสร้าง/ความสมเหตุสมผลของตาราง" เท่านั้น — ไม่ตรวจว่าตัวเลขถูกตามกฎหมาย
 //   (ผู้นำเข้าต้องอ้างเอกสารต้นทางเอง — sourceDoc บังคับ)
 // - checksum ผูกกับเนื้อหาตาราง (รวมชุดตาราง factorFTables ของ ว 481) — แก้ไฟล์ภายหลัง = ตรวจพบ
-import type { FactorFTable, Ruleset, WorkTypeCode } from "./ruleset";
+import type { FactorFTable, Ruleset, WageSchedule, WorkTypeCode } from "./ruleset";
 import { computeChecksum, rulesetChecksum, validateFactorFTable } from "./ruleset";
 
 const WORK_TYPES: readonly WorkTypeCode[] = ["building", "road", "bridge", "irrigation"];
+
+// ตรวจโครงสร้างบัญชีค่าแรงงาน (ว 480) — โครงสร้างเท่านั้น ไม่ตรวจว่าค่าถูกตามกฎหมาย
+// เข้มเท่ากับ parser (scripts/parse-w480.mjs): ลำดับรูปแบบ/ไม่ซ้ำ, ระดับตรงกับจำนวนช่วง, ราคาเป็นบาทเต็ม > 0
+function wageScheduleError(s: WageSchedule, where = "wageSchedule"): string | null {
+  if (typeof s !== "object" || s === null || Array.isArray(s)) return `${where} ไม่ถูกต้อง — ต้องเป็น object { entries, notices }`;
+  if (!Array.isArray(s.entries)) return `${where}.entries ต้องเป็น array ของรายการ`;
+  if (!Array.isArray(s.notices) || s.notices.some((n) => typeof n !== "string"))
+    return `${where}.notices ต้องเป็น array ของข้อความ`;
+  const seen = new Set<string>();
+  for (let i = 0; i < s.entries.length; i++) {
+    const e = s.entries[i] as WageSchedule["entries"][number];
+    const w = `${where}.entries[${i}] (no=${String((e as { no?: unknown }).no)})`;
+    if (typeof e !== "object" || e === null || Array.isArray(e)) return `${w} ไม่ถูกต้อง — ต้องเป็น object ของรายการ`;
+    if (typeof e.no !== "string" || !/^\d+(?:\.\d+)*$/.test(e.no))
+      return `${w}.no ต้องเป็นข้อความลำดับรูป "1" หรือ "1.2.3"`;
+    if (seen.has(e.no)) return `${w}.no ซ้ำ (${e.no}) — ลำดับต้องไม่ซ้ำ`;
+    seen.add(e.no);
+    if (typeof e.name !== "string" || !e.name) return `${w}.name ต้องเป็นข้อความ`;
+    if (![1, 2, 3, 4].includes(e.level)) return `${w}.level ต้องเป็น 1, 2, 3 หรือ 4`;
+    if (e.level !== e.no.split(".").length)
+      return `${w}.level (${e.level}) ไม่ตรงกับจำนวนช่วงของ no (${e.no} = ${e.no.split(".").length} ช่วง)`;
+    if (!Array.isArray(e.notes) || e.notes.some((n) => typeof n !== "string")) return `${w}.notes ต้องเป็น array ของข้อความ`;
+    if (!Array.isArray(e.prices)) return `${w}.prices ต้องเป็น array ของแถวราคา`;
+    for (let j = 0; j < e.prices.length; j++) {
+      const p = e.prices[j] as WageSchedule["entries"][number]["prices"][number];
+      if (typeof p !== "object" || p === null || Array.isArray(p)) return `${w}.prices[${j}] ไม่ถูกต้อง — ต้องเป็น object ของแถวราคา`;
+      const perr = priceRowError(p, `${w}.prices[${j}]`);
+      if (perr) return perr;
+    }
+    const checkVariants = (vs: WageSchedule["entries"][number]["variants"], path: string): string | null => {
+      if (vs === undefined || vs === null) return null;
+      if (!Array.isArray(vs)) return `${path} ต้องเป็น array ของ variant`;
+      for (let k = 0; k < vs.length; k++) {
+        const v = vs[k] as NonNullable<WageSchedule["entries"][number]["variants"]>[number];
+        if (typeof v !== "object" || v === null || Array.isArray(v)) return `${path}[${k}] ไม่ถูกต้อง — ต้องเป็น object ของ variant`;
+        if (typeof v.name !== "string" || !v.name) return `${path}[${k}].name ต้องเป็นข้อความ`;
+        if (!Array.isArray(v.prices)) return `${path}[${k}].prices ต้องเป็น array ของแถวราคา`;
+        for (let j = 0; j < v.prices.length; j++) {
+          const p = v.prices[j] as WageSchedule["entries"][number]["prices"][number];
+          if (typeof p !== "object" || p === null || Array.isArray(p)) return `${path}[${k}].prices[${j}] ไม่ถูกต้อง`;
+          const perr = priceRowError(p, `${path}[${k}].prices[${j}]`);
+          if (perr) return perr;
+        }
+        const sub = checkVariants(v.children, `${path}[${k}].children`);
+        if (sub) return sub;
+      }
+      return null;
+    };
+    const verr = checkVariants(e.variants, `${w}.variants`);
+    if (verr) return verr;
+  }
+  return null;
+}
+
+// แถวราคาเดียว — ราคาต้องเป็นบาทเต็ม > 0 (ตัวประกาศไม่มีราคา 0) และฟิลด์ข้อความต้องเป็น string
+function priceRowError(p: { price: number; unit?: string; name?: string; note?: string }, path: string): string | null {
+  if (typeof p.price !== "number" || !Number.isFinite(p.price) || !Number.isInteger(p.price) || p.price <= 0)
+    return `${path}.price ต้องเป็นจำนวนเต็มบาทที่มากกว่า 0 (ตัวประกาศพิมพ์เป็นบาทเต็ม)`;
+  for (const k of ["unit", "name", "note"] as const) {
+    if (p[k] !== undefined && typeof p[k] !== "string") return `${path}.${k} ต้องเป็นข้อความ (ถ้ามี)`;
+  }
+  return null;
+}
 
 // ตรวจพารามิเตอร์หัวตาราง (ตัวเลขครบ) — where เช่น "factorF" หรือ "factorFTables[3]"
 function headerError(t: FactorFTable, where: string): string | null {
@@ -78,12 +141,42 @@ export async function prepareImport(raw: string): Promise<{ rs: Ruleset; note: s
     }
   }
 
+  // — บัญชีค่าแรงงาน (wageSchedule) — รูปแบบบัญชีค่าแรงงานฯ ว 480 (ตรวจโครงสร้าง ไม่ตรวจค่ากฎหมาย)
+  // ว่าง (entries array ว่าง) = ถือว่าไม่ระบุ — ตัดทิ้งเพื่อให้ checksum เทียบเท่าแบบไม่มีบัญชี
+  let wageSchedule: WageSchedule | undefined;
+  let wageNote = "";
+  const fileWageChecksum = typeof data.wageScheduleChecksum === "string" && data.wageScheduleChecksum ? data.wageScheduleChecksum : undefined;
+  if (data.wageSchedule !== undefined && data.wageSchedule !== null) {
+    const s = data.wageSchedule as WageSchedule;
+    const err = wageScheduleError(s);
+    if (err) throw new Error(err);
+    if (s.entries.length > 0) {
+      wageSchedule = s;
+      wageNote = `ไฟล์มีบัญชีค่าแรงงาน (wageSchedule) ${s.entries.length} รายการ + หมายเหตุ ${s.notices.length} ข้อ — ต้องยืนยันตัวเลขกับเอกสารต้นทางก่อนใช้คำนวณจริง`;
+    }
+  }
+  if (fileWageChecksum && !wageSchedule) {
+    throw new Error("ไฟล์ระบุ wageScheduleChecksum (checksum ของบัญชีค่าแรงงาน) แต่ไม่พบ wageSchedule — ไฟล์อาจถูกตัดหรือแก้ไข ห้ามนำเข้า");
+  }
+
   for (const k of ["contingencyPct", "swcPct", "durableHandlingPct"] as const) {
     if (data[k] !== undefined && data[k] !== null && typeof data[k] !== "number") throw new Error(`${k} ต้องเป็นตัวเลข (ถ้ามี)`);
   }
   if (data.labor !== undefined && data.labor !== null) {
     const l = data.labor as { minPct?: unknown; maxPct?: unknown };
     if (typeof l.minPct !== "number" || typeof l.maxPct !== "number") throw new Error("labor ต้องเป็น { minPct, maxPct }");
+  }
+
+  // provenance — metadata ที่มา (ไม่รวมใน checksum) ใช้เตือนว่าไฟล์ยังไม่ยืนยันกับราชกิจจานุเบกษา
+  let provenance: Ruleset["provenance"];
+  if (data.provenance !== undefined && data.provenance !== null) {
+    const p = data.provenance as Record<string, unknown>;
+    if (typeof p !== "object" || Array.isArray(p)) throw new Error("provenance ต้องเป็น object");
+    if (p.sourceKind !== "official" && p.sourceKind !== "mirror-unverified")
+      throw new Error('provenance.sourceKind ต้องเป็น "official" หรือ "mirror-unverified"');
+    provenance = { sourceKind: p.sourceKind };
+    if (typeof p.verifiedAgainstGazette === "boolean") provenance.verifiedAgainstGazette = p.verifiedAgainstGazette;
+    if (typeof p.retrievedFrom === "string") provenance.retrievedFrom = p.retrievedFrom;
   }
 
   // setChecksum ต้องตรวจก่อน checksum หลัก — ป้องกันไฟล์ที่อ้างว่ามีชุดตารางแต่ถูกตัดทิ้ง
@@ -106,9 +199,25 @@ export async function prepareImport(raw: string): Promise<{ rs: Ruleset; note: s
     notes.push("ระบบคำนวณ setChecksum ของชุดตารางให้ใหม่ (ป้องกันการตัดชุดตารางออกจากไฟล์ภายหลัง)");
   }
 
+  // wageScheduleChecksum — pattern เดียวกับ setChecksum แต่ผูกบัญชีค่าแรงงาน (ว 480)
+  let wageScheduleChecksum: string | undefined;
+  if (fileWageChecksum && wageSchedule) {
+    const actual = await computeChecksum(wageSchedule);
+    if (actual !== fileWageChecksum) {
+      throw new Error(
+        `wageScheduleChecksum ไม่ตรงกับบัญชีค่าแรงงาน (ไฟล์: ${fileWageChecksum.slice(0, 8)}… / คำนวณใหม่: ${actual.slice(0, 8)}…) — บัญชีค่าแรงงานอาจถูกแก้ภายหลัง ห้ามนำเข้า`,
+      );
+    }
+    wageScheduleChecksum = fileWageChecksum;
+  } else if (wageSchedule) {
+    wageScheduleChecksum = await computeChecksum(wageSchedule);
+    notes.push("ระบบคำนวณ wageScheduleChecksum ของบัญชีค่าแรงงานให้ใหม่ (ป้องกันการตัดบัญชีออกจากไฟล์ภายหลัง)");
+  }
+
   const draft = {
     factorF: factorF ?? null,
     factorFTables,
+    wageSchedule,
     labor: (data.labor as Ruleset["labor"]) ?? null,
     contingencyPct: (data.contingencyPct as number | undefined) ?? null,
     swcPct: (data.swcPct as number | undefined) ?? null,
@@ -125,6 +234,7 @@ export async function prepareImport(raw: string): Promise<{ rs: Ruleset; note: s
     notes.push("ไฟล์ไม่มี checksum — ระบบคำนวณจากเนื้อหาให้ใหม่ (ควรตรวจตัวเลขกับเอกสารต้นทางก่อนใช้จริง)");
   }
   if (setNote) notes.push(setNote);
+  if (wageNote) notes.push(wageNote);
 
   const rs: Ruleset = {
     id: String(data.id ?? "").trim() || globalThis.crypto?.randomUUID?.() || `rs-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`,
@@ -136,10 +246,13 @@ export async function prepareImport(raw: string): Promise<{ rs: Ruleset; note: s
     factorF,
     factorFTables,
     setChecksum,
+    wageSchedule,
+    wageScheduleChecksum,
     labor: draft.labor ?? undefined,
     contingencyPct: draft.contingencyPct ?? undefined,
     swcPct: draft.swcPct ?? undefined,
     durableHandlingPct: draft.durableHandlingPct ?? undefined,
+    provenance,
     notices: Array.isArray(data.notices) ? (data.notices as unknown[]).map(String) : undefined,
     supersededBy: typeof data.supersededBy === "string" && data.supersededBy ? data.supersededBy : undefined,
     createdAt: new Date().toISOString(),

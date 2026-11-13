@@ -53,14 +53,52 @@ export type Ruleset = {
   checksum: string; // ลายนิ้วมือกันการแก้ไข: FNV-1a 2×32-bit (hex 16 ตัว) — ไม่ใช่ crypto-strong, คำนวณด้วย computeChecksum
   factorF?: FactorFTable; // ตาราง Factor F เดี่ยว (ใช้ได้กับประกาศที่ให้ตารางเดียว)
   factorFTables?: FactorFTable[]; // ชุดตารางหลายตาราง (เช่น ว 481: 4 ประเภทงาน × 12 คู่อัตรา) — เลือกด้วย selectFactorFTable
+  wageSchedule?: WageSchedule; // บัญชีค่าแรงงาน/ดำเนินการ (กค 0433.2/ว 480) — รายการค่าแรงงานต่อหน่วย
+  wageScheduleChecksum?: string; // checksum ของ wageSchedule (กันการตัดชุดออกจากไฟล์ภายหลัง — pattern เดียวกับ setChecksum)
   setChecksum?: string; // checksum ของ factorFTables (array เปล่า ๆ ไม่รวมส่วนอื่น) — กันการตัดชุดตารางออกจากไฟล์ภายหลัง; ตรวจตอน import เมื่อมีฟิลด์นี้ (ไฟล์เก่าที่ไม่มี = ไม่ตรวจ)
   labor?: { minPct: number; maxPct: number }; // ช่วง % ค่าแรง เช่น 30–37 — จากเอกสารทางการเท่านั้น
+  // ที่มาของชุดกฎ — ใช้เตือนผู้ใช้/เอกสารพิมพ์ว่าไฟล์ต้นทางยังไม่ยืนยันกับราชกิจจานุเบกษา
+  // (ไม่ถูกรวมใน rulesetChecksum — เป็น metadata ไม่ใช่เนื้อหาตัวเลขกฎหมาย)
+  provenance?: {
+    sourceKind: "official" | "mirror-unverified";
+    verifiedAgainstGazette?: boolean;
+    retrievedFrom?: string;
+  };
   contingencyPct?: number; // % เงินเผื่อจำเป็น — จากเอกสารทางการเท่านั้น (ไม่มีค่า default ในโค้ด)
   swcPct?: number; // % ค่าดำเนินงาน (งานก่อสร้าง) — จากเอกสารทางการเท่านั้น
   durableHandlingPct?: number; // % ค่าดำเนินงานครุภัณฑ์ (แยกจากฐาน Factor F) — จากเอกสารทางการเท่านั้น
   notices?: string[]; // หมายเหตุ/เงื่อนไขจากประกาศ
   supersededBy?: string; // ruleset id ที่มาแทนที่ (ถ้าถูกแทนแล้ว)
   createdAt: string;
+};
+
+// — ชุดบัญชีค่าแรงงาน (กค 0433.2/ว 480) — โครงสร้างถอดจากเอกสารจริง ผ่าน parser scripts/parse-w480.mjs
+// ทุกแถวราคาเป็น integer บาท (ตัวประกาศพิมพ์เป็นบาทเต็ม — ราคา comma ถูก strip ตอนถอด)
+export type WagePriceRow = {
+  price: number; // บาท/หน่วย (integer)
+  unit?: string; // หน่วย เช่น "ต้น", "เมตร", "ตร.ม."
+  name?: string; // ชื่อของแถวราคา (เช่น 'เสาเข็ม ขนาด ศก. 4" x 4.00 ม.', "หรืออื่น ๆ ...")
+  note?: string; // ข้อความคอลัมน์หมายเหตุของแถว (เช่น "จำนวน 100 - 200 ต้น")
+};
+export type WageVariant = {
+  name: string; // ชื่อ variant จากแถว bullet เช่น 'Size dia 4"' — หรือชื่อหัวกลุ่มย่อย (sub-header)
+  note?: string; // โน้ตคอลัมน์หมายเหตุของหัวกลุ่มย่อย (เช่น "ค่าแรง / 1 เมตร" ของ Linear Slot Diffuser)
+  prices: WagePriceRow[];
+  children?: WageVariant[]; // bullets ที่อยู่ใต้หัวกลุ่มย่อย (sub-header ไม่มีราคา → prices ว่าง)
+};
+export type WageEntry = {
+  no: string; // ลำดับ canonical เช่น "1.1", "2.4.16.1" — ต่อเนื่องตามพ่อแม่เดียวกัน
+  noPrinted?: string; // ตัวพิมพ์ที่ต่างจาก canonical เท่าที่ตัวประกาศพิมพ์ (เช่น "2.68" พิมพ์ผิดของ 2.6.8)
+  level: 1 | 2 | 3 | 4; // ระดับจากจำนวน segment: "1"=1, "1.1"=2, "1.2.1"=3, "1.2.1.10"=4
+  name: string;
+  notes: string[]; // หมายเหตุ/**/หมายเหตุบล็อก/N) ... ที่ติดอยู่ใต้รายการนี้
+  prices: WagePriceRow[]; // แถวราคา (tier จำนวนงาน) ตามลำดับพิมพ์
+  variants?: WageVariant[];
+  anomaly?: string; // คำอธิบายเมื่อตัวพิมพ์เบี่ยงเบน (เช่น "2.68" แห้งของ 2.6.8) — เก็บตามต้นฉบับ
+};
+export type WageSchedule = {
+  entries: WageEntry[];
+  notices: string[]; // หมายเหตุ 3 ข้อท้ายบัญชี (อยู่ใน checksum ด้วย)
 };
 
 const KEY = "iserv-boq-rulesets-v1";
@@ -212,6 +250,7 @@ export async function rulesetChecksum(
   rs: {
     factorF?: FactorFTable | null;
     factorFTables?: FactorFTable[] | null;
+    wageSchedule?: WageSchedule | null;
     labor?: { minPct: number; maxPct: number } | null;
     contingencyPct?: number | null;
     swcPct?: number | null;
@@ -227,6 +266,10 @@ export async function rulesetChecksum(
   };
   if (rs.factorFTables !== undefined && rs.factorFTables !== null && rs.factorFTables.length > 0) {
     canonical.factorFTables = rs.factorFTables;
+  }
+  // บัญชีค่าแรงงาน (ว 480) — ใส่ใน checksum เมื่อมี เพื่อไม่ให้ checksum ของชุดกฎเดิม (ไม่มีบัญชีค่าแรงงาน) เปลี่ยน
+  if (rs.wageSchedule !== undefined && rs.wageSchedule !== null && rs.wageSchedule.entries.length > 0) {
+    canonical.wageSchedule = rs.wageSchedule;
   }
   return computeChecksum(canonical);
 }

@@ -191,3 +191,61 @@ describe("rulesetChecksum — ครอบชุดตารางแบบ back
     expect(await rulesetChecksum({ ...base, factorFTables: [] })).toBe(without);
   });
 });
+
+// บัญชีค่าแรงงาน (ว 480) — backward-compat: ชุดกฎเดิมที่ไม่มี wageSchedule ต้องใช้ checksum เดิมได้
+describe("rulesetChecksum — wageSchedule (ว 480) แบบ backward-compat", () => {
+  const emptySchedule = { entries: [], notices: [] };
+
+  it("wageSchedule undefined / null / entries ว่าง → checksum เท่ากับ canonical เดิม", async () => {
+    const base = await rulesetChecksum({ factorF: LEGACY_TABLE });
+    expect(await rulesetChecksum({ factorF: LEGACY_TABLE, wageSchedule: null })).toBe(base);
+    expect(await rulesetChecksum({ factorF: LEGACY_TABLE, wageSchedule: { entries: [], notices: [] } })).toBe(base);
+    expect(await rulesetChecksum({ factorF: LEGACY_TABLE, wageSchedule: undefined })).toBe(base);
+  });
+
+  it("prepareImport ไฟล์เก่า (ไม่มี wageSchedule/wageScheduleChecksum) → ผ่าน และ checksum ไม่เปลี่ยน", async () => {
+    const file = {
+      id: "legacy",
+      name: "ชุดกฎเดิม",
+      sourceDoc: "เอกสารทดสอบ",
+      effectiveFrom: "2024-01-01",
+      factorF: LEGACY_TABLE,
+    };
+    const { rs } = await prepareImport(JSON.stringify(file));
+    expect(rs.wageSchedule).toBeUndefined();
+    expect(rs.wageScheduleChecksum).toBeUndefined();
+    expect(rs.checksum).toBe(await rulesetChecksum({ factorF: LEGACY_TABLE }));
+  });
+
+  it("prepareImport wageSchedule entries ว่าง → ถือว่าไม่ระบุ (ไม่ปฏิเสธ ไม่แนบ checksum)", async () => {
+    const { rs } = await prepareImport(
+      JSON.stringify({
+        id: "empty-wage",
+        name: "ชุดกฎที่ไม่มีบัญชีค่าแรงงาน",
+        sourceDoc: "เอกสารทดสอบ",
+        effectiveFrom: "2024-01-01",
+        factorF: LEGACY_TABLE,
+        wageSchedule: emptySchedule,
+      }),
+    );
+    expect(rs.wageSchedule).toBeUndefined();
+    expect(rs.wageScheduleChecksum).toBeUndefined();
+  });
+
+  it("prepareImport ราคา 0 หรือ level ไม่ตรงกับ no → ปฏิเสธ (เข้มเท่า parser)", async () => {
+    const base = {
+      id: "bad-wage",
+      name: "ชุดกฎทดสอบ",
+      sourceDoc: "เอกสารทดสอบ",
+      effectiveFrom: "2024-01-01",
+    };
+    const entry = { no: "1.1", level: 2, name: "รายการทดสอบ", notes: [], prices: [{ price: 10, unit: "ต้น" }] };
+    const zero = JSON.parse(JSON.stringify(entry));
+    zero.prices[0].price = 0;
+    await expect(prepareImport(JSON.stringify({ ...base, wageSchedule: { entries: [zero], notices: [] } }))).rejects.toThrow(/price/);
+
+    const badLevel = JSON.parse(JSON.stringify(entry));
+    badLevel.level = 3;
+    await expect(prepareImport(JSON.stringify({ ...base, wageSchedule: { entries: [badLevel], notices: [] } }))).rejects.toThrow(/level/);
+  });
+});
