@@ -1,7 +1,7 @@
 # รายงานความก้าวหน้า — iServ BOQ (PRD v1.2) · 13 พฤศจิกายน 2569
 
 **วันที่รายงาน:** 13 พฤศจิกายน 2569
-**Repo:** https://github.com/aiupitisi-prog/iserv-boq · **Production:** https://iserv-boq.vercel.app
+**Repo:** https://github.com/aiupitisi-prog/iserv-boq (main @ `91e9c79`) · **Production:** https://iserv-boq.vercel.app
 **ต่อเนื่องจาก:** `PROGRESS-REPORT-2569-11-12-G2.md` (ปิด GAP G2) → แผน §6: ตรวจข้อสมมติ unverified · สกัด ว 480 · ว 477 → ว 475 · export BOQ ข้อ 20
 
 ---
