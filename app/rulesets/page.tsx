@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { WorkTypeCode } from "@/lib/ruleset";
 import { loadRulesets, Ruleset, saveRulesets, WORK_TYPE_LABELS } from "@/lib/ruleset";
 import { prepareImport } from "@/lib/ruleset-import";
+import MachineryCalculator from "./machinery-calculator";
 
 // หน้าจัดการชุดกฎราคากลาง (F3.3 ส่วนประกอบเครื่องยนต์)
 // กฎเหล็ก: ตัวเลขกฎหมายเข้าระบบได้จากเอกสารทางการเท่านั้น — ระบบตรวจเฉพาะ "โครงสร้าง/ความสมเหตุสมผลของตาราง"
@@ -45,16 +46,11 @@ const SAMPLE_JSON = `{
   "durableHandlingPct": 12,
   "notices": [
     "ตัวเลขทั้งหมดในตัวอย่างนี้เป็นข้อมูลสมมุติ ไม่ใช่ตัวเลขกฎหมาย",
-    "factorFTables แสดงโครงสร้างแบบชุดตารางตามประกาศ ว 481 — ชุดจริงมี 48 ตาราง (4 ประเภทงาน × 12 คู่อัตรา) ใช้ปุ่มติดตั้งชุด ว 481 ด้านล่าง"
+    "factorFTables แสดงโครงสร้างแบบชุดตารางตามประกาศ ว 481 — ชุดจริงให้ใช้ปุ่มติดตั้งชุด ว 481 ด้านล่าง"
   ]
 }`;
 
 // ตรวจ + เตรียม ruleset อยู่ที่ lib/ruleset-import.ts (pure — ทดสอบด้วย Vitest ได้) — หน้านี้แค่ UI + storage
-const W481_INSTALL_PROMPT =
-  "ติดตั้งชุดตาราง Factor F ตามประกาศ ว 481 ลงเครื่องนี้?\n" +
-  "(48 ตาราง = 4 ประเภทงาน × 12 คู่อัตรา — ระบบจะตรวจ checksum รายตารางก่อนบันทึก)\n\n" +
-  "⚠ ตัวเลขถอดจาก PDF mirror (Yotathai) ยังต้องยืนยันกับราชกิจจานุเบกษา/เล่มจริง " +
-  "ก่อนใช้คำนวณเอกสารที่ส่งหน่วยงานจริง";
 
 export default function RulesetsPage() {
   const [list, setList] = useState<Ruleset[]>([]);
@@ -105,21 +101,29 @@ export default function RulesetsPage() {
   // ตรวจ checksum รายตาราง + ชุดรวมก่อนเสมอ แล้วผ่าน prepareImport ให้เป็นชุดกฎในเครื่อง
   // ตัด checksum ชุดข้อมูลออกก่อน (มัน checksum เฉพาะ array ตาราง ไม่ใช่ checksum ระดับชุดกฎ — ระบบคำนวณให้ใหม่)
   async function installW481() {
-    if (!window.confirm(W481_INSTALL_PROMPT)) return;
-    setBusy(true);
-    setResult(null);
     try {
       const w = await import("@/lib/ruleset-w481-2569");
+      const draft = w.getW481Ruleset();
+      const tableCount = draft.factorFTables?.length ?? 0;
+      const ok = window.confirm(
+        "ติดตั้งชุดตาราง Factor F ตามประกาศ ว 481 ลงเครื่องนี้?\n" +
+          `(${tableCount} ตาราง — ระบบจะตรวจ checksum รายตาราง/ชุดรวมก่อนบันทึก)\n\n` +
+          "⚠ ตัวเลขถอดจาก PDF mirror (Yotathai) ยังต้องยืนยันกับราชกิจจานุเบกษา/เล่มจริง " +
+          "ก่อนใช้คำนวณเอกสารที่ส่งหน่วยงานจริง",
+      );
+      if (!ok) return;
+      setBusy(true);
+      setResult(null);
       const bad = await w.verifyW481Checksums();
       if (bad.length > 0) throw new Error(`checksum ชุดข้อมูล ว 481 ตรวจไม่ผ่าน: ${bad.join(" · ")} — ไฟล์เพี้ยนจากต้นฉบับที่ generate ห้ามติดตั้ง`);
-      const { checksum: setChecksum, ...base } = w.getW481Ruleset();
+      const { checksum: setChecksum, ...base } = draft;
       const withSetNote = {
         ...base,
         setChecksum, // checksum เฉพาะชุดตาราง — กันการตัด factorFTables ออกจากไฟล์ภายหลัง
         notices: [
           ...base.notices ?? [],
           "⚠ ตัวเลขถอดจาก PDF mirror (Yotathai) — ยังไม่ยืนยันกับราชกิจจานุเบกษา/เล่มจริง ห้ามใช้คำนวณเอกสารที่ส่งหน่วยงานจริงก่อนยืนยัน",
-          `SET checksum ของชุด 48 ตาราง (ตรวจผ่านตอนติดตั้ง): ${setChecksum}`,
+          `SET checksum ของชุด ${tableCount} ตาราง (ตรวจผ่านตอนติดตั้ง): ${setChecksum}`,
         ],
       };
       const { rs: prepared, note } = await prepareImport(JSON.stringify(withSetNote));
@@ -130,6 +134,40 @@ export default function RulesetsPage() {
       const next = existing ? list.map((x) => (x.id === prepared.id ? prepared : x)) : [...list, prepared];
       persist(next);
       setResult({ ok: true, message: `ติดตั้งสำเร็จ: ${prepared.name} (SET checksum ตรวจผ่าน)${note ? " — " + note : ""}` });
+    } catch (e) {
+      setResult({ ok: false, message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ติดตั้งชุดตารางค่าเครื่องจักร ว 475 ที่ generate ไว้ใน repo (lib/ruleset-w475-2569.ts — GENERATED ห้ามแก้มือ)
+  // ตรวจ checksum รายช่วง/รายการ/ชุดก่อน แล้วผ่าน prepareImport (ตรวจ machineryScheduleChecksum อีกชั้น)
+  async function installW475() {
+    setBusy(true);
+    setResult(null);
+    try {
+      const w = await import("@/lib/ruleset-w475-2569");
+      const s = w.W475_2569_SCHEDULE;
+      const ok = window.confirm(
+        "ติดตั้งชุดตารางค่าดำเนินการและค่าเสื่อมราคาเครื่องจักร ตามประกาศ ว 475 ลงเครื่องนี้?\n" +
+          `(${s.items.filter((i) => i.priced !== "none").length} บรรทัดที่มีราคา + ${s.items.filter((i) => i.priced === "none").length} หัวข้อ × ${s.bands.length} ช่วงราคาน้ำมัน — ระบบจะตรวจ checksum รายช่วง/รายการ/ชุดก่อนบันทึก)\n\n` +
+          "⚠ ตัวเลขถอดจาก PDF mirror (Yotathai) ยังต้องยืนยันกับราชกิจจานุเบกษา/เล่มจริง " +
+          "ก่อนใช้คำนวณเอกสารที่ส่งหน่วยงานจริง",
+      );
+      if (!ok) return;
+      const bad = await w.verifyW475Checksums();
+      if (bad.length > 0) throw new Error(`checksum ชุดข้อมูล ว 475 ตรวจไม่ผ่าน: ${bad.join(" · ")} — ไฟล์เพี้ยนจากต้นฉบับที่ generate ห้ามติดตั้ง`);
+      const base: Record<string, unknown> = { ...w.getW475Ruleset() };
+      delete base.checksum; // checksum ระดับชุดกฎให้ prepareImport คำนวณใหม่ (ตรวจ machineryScheduleChecksum เอง)
+      const { rs: prepared, note } = await prepareImport(JSON.stringify(base));
+      const existing = list.find((x) => x.id === prepared.id);
+      if (existing && existing.checksum !== prepared.checksum) {
+        throw new Error(`มีชุดกฎ id ${prepared.id.slice(0, 8)}… อยู่แล้วโดย checksum ต่างกัน — ลบชุดกฎเดิมออกก่อนติดตั้งใหม่`);
+      }
+      const next = existing ? list.map((x) => (x.id === prepared.id ? prepared : x)) : [...list, prepared];
+      persist(next);
+      setResult({ ok: true, message: `ติดตั้งสำเร็จ: ${prepared.name} (checksum รายช่วง/รายการ/ชุด ตรวจผ่าน)${note ? " — " + note : ""}` });
     } catch (e) {
       setResult({ ok: false, message: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -206,19 +244,34 @@ export default function RulesetsPage() {
           </button>
         </div>
 
-        {/* ติดตั้งชุดตาราง ว 481 ที่ generate ไว้ใน repo — ผ่านการตรวจ checksum รายตารางก่อนบันทึก */}
-        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-          <p className="text-xs text-slate-600">
-            ชุดตาราง Factor F ตามประกาศ <b>ว 481</b> (48 ตาราง = 4 ประเภทงาน × 12 คู่อัตรา) — ถอดจาก w481.pdf ที่ generate ไว้ใน repo พร้อม checksum รายตาราง + ชุดรวม
-          </p>
-          <button
-            onClick={installW481}
-            disabled={busy}
-            className="mt-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-40"
-          >
-            {busy ? "กำลังตรวจ…" : "ติดตั้งชุด ว 481 ลงเครื่องนี้"}
-          </button>
-          <p className="mt-1.5 text-xs text-amber-900">
+        {/* ติดตั้งชุดข้อมูลที่ generate ไว้ใน repo — ตรวจ checksum ชุดข้อมูลก่อนบันทึกทุกครั้ง */}
+        <div className="mt-4 space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div>
+            <p className="text-xs text-slate-600">
+              ชุดตาราง Factor F ตามประกาศ <b>ว 481</b> — ถอดจาก w481.pdf ที่ generate ไว้ใน repo พร้อม checksum รายตาราง + ชุดรวม
+            </p>
+            <button
+              onClick={installW481}
+              disabled={busy}
+              className="mt-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-40"
+            >
+              {busy ? "กำลังตรวจ…" : "ติดตั้งชุด ว 481 ลงเครื่องนี้"}
+            </button>
+          </div>
+          <div className="border-t border-slate-200 pt-3">
+            <p className="text-xs text-slate-600">
+              ชุดตารางค่าดำเนินการและค่าเสื่อมราคาเครื่องจักร ตามประกาศ <b>ว 475</b> — ติดตั้งแล้วจะเปิดใช้
+              <b> เครื่องคิดค่าเครื่องจักร</b> ใต้ชุดกฎในรายการด้านล่าง
+            </p>
+            <button
+              onClick={installW475}
+              disabled={busy}
+              className="mt-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-40"
+            >
+              {busy ? "กำลังตรวจ…" : "ติดตั้งชุด ว 475 ลงเครื่องนี้"}
+            </button>
+          </div>
+          <p className="text-xs text-amber-900">
             ⚠ ตัวเลขถอดจาก PDF mirror (Yotathai) — ยังต้องยืนยันกับราชกิจจานุเบกษา/เล่มจริงก่อนใช้คำนวณเอกสารที่ส่งหน่วยงานจริง
           </p>
         </div>
@@ -270,6 +323,12 @@ export default function RulesetsPage() {
                 {rs.durableHandlingPct !== undefined && <span>ค่าดำเนินงานครุภัณฑ์: {rs.durableHandlingPct}%</span>}
                 {rs.factorFTables !== undefined && rs.factorFTables.length > 0 && (
                   <span>ชุดตาราง Factor F: {rs.factorFTables.length} ตาราง (เลือกตามประเภทงาน × ทดรองจ่าย × ประกันผลงาน)</span>
+                )}
+                {rs.machinerySchedule !== undefined && rs.machinerySchedule.bands.length > 0 && (
+                  <span>
+                    ตารางค่าเครื่องจักร (ว 475): {rs.machinerySchedule.items.filter((i) => i.priced !== "none").length} บรรทัดที่มีราคา +{" "}
+                    {rs.machinerySchedule.items.filter((i) => i.priced === "none").length} หัวข้อ × {rs.machinerySchedule.bands.length} ช่วงน้ำมัน
+                  </span>
                 )}
                 {!rs.factorF && !(rs.factorFTables !== undefined && rs.factorFTables.length > 0) && (
                   <span className="text-amber-900">ไม่มีตาราง Factor F — เครื่องยนต์จะคำนวณแบบไม่ปรับ (F = 1)</span>
@@ -350,6 +409,18 @@ export default function RulesetsPage() {
                     </table>
                   </div>
                   {rs.factorF !== undefined && <p className="mt-1 text-xs text-slate-500">ไฟล์มีตารางเดี่ยว (factorF) อยู่ด้วย — เครื่องยนต์จะใช้ชุดตารางนี้เท่านั้น</p>}
+                </details>
+              )}
+
+              {rs.machinerySchedule !== undefined && rs.machinerySchedule.bands.length > 0 && (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-sm text-blue-700">
+                    เครื่องคิดค่าเครื่องจักร (ว 475 — {rs.machinerySchedule.items.filter((i) => i.priced !== "none").length} บรรทัดที่มีราคา × {rs.machinerySchedule.bands.length} ช่วงน้ำมัน)
+                  </summary>
+                  <MachineryCalculator
+                    schedule={rs.machinerySchedule}
+                    provenance={{ rulesetId: rs.id, rulesetChecksum: rs.checksum }}
+                  />
                 </details>
               )}
 

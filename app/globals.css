@@ -48,6 +48,8 @@ body {
 .border-amber-300 { border-color: #b45309; }
 .text-amber-900 { color: #fcd34d; }
 .text-amber-800 { color: #fbbf24; }
+.bg-red-50 { background-color: rgba(127, 29, 29, 0.3); }
+.text-red-800 { color: #fca5a5; }
 .bg-teal-50 { background-color: rgba(19, 78, 74, 0.4); }
 .bg-teal-100 { background-color: rgba(17, 94, 89, 0.45); }
 .text-teal-800 { color: #5eead4; }
