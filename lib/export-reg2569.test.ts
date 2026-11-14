@@ -169,6 +169,32 @@ describe("export-reg2569 — ชุดเอกสารเผยแพร่ (x
     expect(cover).toContain(bahtText(GOLD_REP.summary.totalSat));
   });
 
+  it("บรรทัดข้อ 20 บนชีต 00 ดึงวันบังคับใช้จากชุดกฎ (ไม่ hardcode) — ไม่มีชุดกฎ = ป้าย unverified", async () => {
+    // ชุดกฎทดสอบมี effectiveFrom "2000-01-01" → ต้องขึ้นเป็นวันที่ไทยจากข้อมูล ไม่ใช่วันของหลักเกณฑ์จริง
+    expect(allText(wb, REG2569_SHEETS.cover)).toContain("มีผลบังคับ 1 มกราคม 2543");
+    // กันการ hardcode กลับมา: วันบังคับใช้จริงของหลักเกณฑ์ต้องไม่ผูกตายในโค้ด
+    expect(allText(wb, REG2569_SHEETS.cover)).not.toContain("มีผลบังคับ 9 มิถุนายน 2569)");
+
+    // ไม่ส่งชุดกฎ → ไม่เดาวันที่ ติดป้าย unverified แทน
+    const rep = reportOf(GOLD);
+    const b = await toReg2569WorkbookArray(GOLD, null, rep, { now: NOW });
+    const w = XL.read(b, { type: "array" });
+    const cover = allText(w, REG2569_SHEETS.cover);
+    expect(cover).toContain("มีผลบังคับ ไม่ระบุ (unverified)");
+
+    // รูปแบบวันที่ไม่รู้จัก → ติดป้าย "ต้องตรวจ" ไม่เดาแปลงเอง
+    const badFmt: Ruleset = { ...TEST_RULESET, effectiveFrom: "09/06/2569" };
+    const b2 = await toReg2569WorkbookArray(GOLD, badFmt, rep, { now: NOW });
+    const w2 = XL.read(b2, { type: "array" });
+    expect(allText(w2, REG2569_SHEETS.cover)).toContain("มีผลบังคับ 09/06/2569 (รูปแบบวันที่ไม่รู้จัก — ต้องตรวจ)");
+
+    // ปีสั้นกว่า 4 หลัก (นำหน้า 0) — JS จะตีความเป็น 19xx หากส่งเข้า Date ตรง ๆ
+    const shortYear: Ruleset = { ...TEST_RULESET, effectiveFrom: "0025-01-01" };
+    const b3 = await toReg2569WorkbookArray(GOLD, shortYear, rep, { now: NOW });
+    const w3 = XL.read(b3, { type: "array" });
+    expect(allText(w3, REG2569_SHEETS.cover)).toContain("มีผลบังคับ 0025-01-01 (รูปแบบวันที่ไม่รู้จัก — ต้องตรวจ)");
+  });
+
   it("เงินในเซลล์เป็น number (บาท 2 ตำแหน่ง) และตรงกับยอดเครื่องยนต์ (สตางค์ ÷ 100)", () => {
     const p4 = rowsOf(wb, REG2569_SHEETS.p4);
     const row = p4.find((r) => r[1] === "ราคากลาง");

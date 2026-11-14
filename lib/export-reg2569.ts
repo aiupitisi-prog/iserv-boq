@@ -85,6 +85,16 @@ function thaiDate(d: Date): string {
   return `${d.getDate()} ${TH_MONTHS[d.getMonth()]} ${d.getFullYear() + 543}`;
 }
 
+// วันบังคับใช้ของชุดกฎ (รูปแบบ "YYYY-MM-DD" ตาม Ruleset.effectiveFrom) → ข้อความวันที่ไทย
+// ไม่เดา: ไม่มีค่า/รูปแบบไม่รู้จัก/ปีที่ JS ตีความเพี้ยน = ติดป้าย unverified ให้ตรวจก่อนใช้
+function effectiveFromThai(effectiveFrom: string | undefined): string {
+  if (!effectiveFrom) return "ไม่ระบุ (unverified)";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(effectiveFrom);
+  // new Date(ปี, …) ตีความปี 0–99 เป็น 19xx — ปีสั้นกว่า 4 หลัก (นำหน้า 0) ถือว่าข้อมูลไม่น่าเชื่อถือ
+  if (!m || Number(m[1]) < 1000) return `${effectiveFrom} (รูปแบบวันที่ไม่รู้จัก — ต้องตรวจ)`;
+  return thaiDate(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+}
+
 // สตางค์ → บาท (number 2 ตำแหน่ง) — แสดงผลเท่านั้น
 function money(s: number | null | undefined): number | "" {
   if (s === null || s === undefined || !Number.isFinite(s)) return "";
@@ -190,7 +200,8 @@ function buildCoverSheet(
 
   const aoa: Row[] = [
     ["ชุดเอกสารเผยแพร่ราคากลาง พ.ศ. 2569"],
-    ["ตามข้อ 20 หลักเกณฑ์การคำนวณราคากลางงานก่อสร้าง พ.ศ. 2569 (มีผลบังคับ 9 มิถุนายน 2569)"],
+    // วันบังคับใช้ดึงจากชุดกฎที่ pin — ห้าม hardcode (หลักเกณฑ์ฉบับเดียวกันอาจมีหลายชุดกฎ)
+    [`ตามข้อ 20 หลักเกณฑ์การคำนวณราคากลางงานก่อสร้าง พ.ศ. 2569 (มีผลบังคับ ${effectiveFromThai(ruleset?.effectiveFrom)})`],
     [],
     ["ชื่อโครงการ", project.name],
     ["สถานที่", project.address || ""],
