@@ -2155,7 +2155,7 @@ export function getW481Ruleset(): Ruleset {
     name: 'ตาราง Factor F ดอกเบี้ยเงินกู้ 6% (หลักเกณฑ์ราคากลางงานก่อสร้าง พ.ศ. 2569)',
     sourceDoc: 'หนังสือกรมบัญชีกลาง ด่วนที่สุด ที่ ' + W481_2569_NUMBERING + ' (ตาราง Factor F ดอกเบี้ย 6%/ปี, VAT 7%)',
     sourceUrl: W481_2569_SOURCE_URL,
-    effectiveFrom: '2026-06-26',
+    effectiveFrom: '2026-06-09', // วันบังคับใช้ตามข้อ ๕ ของประกาศ (วันถัดจากวันประกาศ ๘ มิ.ย. ๒๕๖๙) — ยืนยันกับราชกิจจานุเบกษา 14 พ.ย. 2569 (หนังสือเวียน ว 481 ลง 26 มิ.ย. ไม่ใช่วันบังคับใช้ — ดู docs/reg-2569/README.md)
     checksum: W481_2569_SET_CHECKSUM,
     factorFTables: W481_2569_TABLES,
     notices: W481_2569_NOTICES,

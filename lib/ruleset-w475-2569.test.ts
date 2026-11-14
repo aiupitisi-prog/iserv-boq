@@ -198,7 +198,7 @@ describe("ว 475 — โครงสร้างตาราง", () => {
     expect(rs.id).toBe("reg2569-machinery-w475");
     expect(rs.checksum).toMatch(/^[0-9a-f]{16}$/);
     expect(rs.machineryScheduleChecksum).toBe(W475_2569_SET_CHECKSUM);
-    expect(rs.effectiveFrom).toBe("2026-06-26");
+    expect(rs.effectiveFrom).toBe("2026-06-09");
     expect(rs.provenance).toEqual({
       sourceKind: "mirror-unverified",
       verifiedAgainstGazette: false,

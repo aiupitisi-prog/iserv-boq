@@ -606,7 +606,7 @@ export function getW475Ruleset(): Ruleset {
     name: "ตารางค่าดำเนินการและค่าเสื่อมราคา (หลักเกณฑ์ราคากลางงานก่อสร้าง พ.ศ. 2569)",
     sourceDoc: "หนังสือกรมบัญชีกลาง ด่วนที่สุด ที่ กค 0433.2/ว 475 ลงวันที่ 26 มิถุนายน 2569",
     sourceUrl: W475_2569_SOURCE_URL,
-    effectiveFrom: "2026-06-26", // วันที่ลงหนังสือ — ยังไม่ยืนยันวันมีผลบังคับใช้ (ดู docs/reg-2569/README.md)
+    effectiveFrom: "2026-06-09", // วันบังคับใช้ตามข้อ ๕ ของประกาศ (วันถัดจากวันประกาศ ๘ มิ.ย. ๒๕๖๙) — ยืนยันกับราชกิจจานุเบกษา 14 พ.ย. 2569 (หนังสือเวียน ว 475 ลง 26 มิ.ย. ไม่ใช่วันบังคับใช้ — ดู docs/reg-2569/README.md)
     checksum: W475_2569_RULESET_CHECKSUM,
     machinerySchedule: W475_2569_SCHEDULE,
     machineryScheduleChecksum: W475_2569_SET_CHECKSUM,

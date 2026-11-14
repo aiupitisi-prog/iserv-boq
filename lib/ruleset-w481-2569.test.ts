@@ -34,6 +34,10 @@ describe("ว 481 — checksum + โครงสร้างชุดข้อ�
     expect(bad).toEqual([]);
   });
 
+  it("วันบังคับใช้ = 9 มิ.ย. 2569 (ข้อ ๕ ของประกาศ — ยืนยันกับราชกิจจานุเบกษา 14 พ.ย. 2569; ไฟล์ GENERATED แก้มือ แก้มือเท่านั้นเพราะไม่มี parser ใน repo)", () => {
+    expect(getW481Ruleset().effectiveFrom).toBe("2026-06-09");
+  });
+
   it("48 ตาราง (4 ประเภทงาน × 12 คู่อัตรา) — id ตรงกับฟิลด์ของตารางทุกตัว", () => {
     expect(W481_2569_TABLES).toHaveLength(48);
     expect(W481_2569_TABLE_IDS).toHaveLength(48);

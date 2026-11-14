@@ -237,7 +237,7 @@ describe("ว 477 — checksum", () => {
     expect(rs.id).toBe("reg2569-transport-w477");
     expect(rs.checksum).toMatch(/^[0-9a-f]{16}$/);
     expect(rs.transportScheduleChecksum).toBe(W477_2569_SET_CHECKSUM);
-    expect(rs.effectiveFrom).toBe("2026-06-26");
+    expect(rs.effectiveFrom).toBe("2026-06-09");
     expect(rs.provenance).toEqual({
       sourceKind: "mirror-unverified",
       verifiedAgainstGazette: false,

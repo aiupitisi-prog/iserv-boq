@@ -197,7 +197,7 @@ describe("ว 480 — หมายเหตุ 3 ข้อท้ายบัญ�
   it("getW480Ruleset(): labor 30–37% อ้างข้อ 1 ของบัญชี + ไม่มี Factor F + wageSchedule ครบ", async () => {
     const rs = getW480Ruleset();
     expect(rs.id).toBe("reg2569-wage-w480");
-    expect(rs.effectiveFrom).toBe("2026-06-26");
+    expect(rs.effectiveFrom).toBe("2026-06-09");
     expect(rs.labor).toEqual({ minPct: 30, maxPct: 37 });
     expect(rs.factorF).toBeUndefined();
     expect(rs.factorFTables).toBeUndefined();

@@ -6729,7 +6729,7 @@ export function getW477Ruleset(): Ruleset {
     name: "ตารางค่าขนส่งวัสดุก่อสร้าง (หลักเกณฑ์ราคากลางงานก่อสร้าง พ.ศ. 2569)",
     sourceDoc: "หนังสือกรมบัญชีกลาง ด่วนที่สุด ที่ " + W477_2569_NUMBERING,
     sourceUrl: W477_2569_SOURCE_URL,
-    effectiveFrom: "2026-06-26", // วันที่ลงหนังสือ — ยังไม่ยืนยันวันมีผลบังคับใช้ (ดู docs/reg-2569/README.md)
+    effectiveFrom: "2026-06-09", // วันบังคับใช้ตามข้อ ๕ ของประกาศ (วันถัดจากวันประกาศ ๘ มิ.ย. ๒๕๖๙) — ยืนยันกับราชกิจจานุเบกษา 14 พ.ย. 2569 (หนังสือเวียน ว 477 ลง 26 มิ.ย. ไม่ใช่วันบังคับใช้ — ดู docs/reg-2569/README.md)
     checksum: W477_2569_RULESET_CHECKSUM,
     transportSchedule: W477_2569_SCHEDULE,
     transportScheduleChecksum: W477_2569_SET_CHECKSUM,
