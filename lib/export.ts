@@ -22,7 +22,7 @@ import {
 import { computeGovBOQ } from "./calc/compute";
 import { satangToBaht } from "./calc/money";
 
-type XlsxModule = typeof import("xlsx");
+export type XlsxModule = typeof import("xlsx");
 
 // ---------- CSV ----------
 
@@ -86,18 +86,26 @@ export function toCsv(project: BoqProject): string {
 
 // ---------- xlsx (SheetJS — dynamic import, browser เท่านั้น) ----------
 
-const MONEY_FMT = "#,##0.00";
-const QTY_FMT = "#,##0.####";
+export const MONEY_FMT = "#,##0.00";
+export const QTY_FMT = "#,##0.####";
 
 let _xlsx: Promise<XlsxModule> | null = null;
 
-async function xlsxModule(): Promise<XlsxModule> {
-  if (!_xlsx) _xlsx = import("xlsx");
+// โหลด xlsx แบบ lazy (dynamic import) — ใช้ร่วมกันระหว่าง export เดิมกับชุดเผยแพร่ 2569
+// ถ้าโหลดพลาด (network/chunk) ต้องล้าง cache เพื่อให้กดลองใหม่ได้ ไม่ค้าง promise ที่ reject ตลอด session
+export async function loadXlsx(): Promise<XlsxModule> {
+  if (!_xlsx) {
+    _xlsx = import("xlsx").catch((e: unknown) => {
+      _xlsx = null;
+      throw e;
+    });
+  }
   return _xlsx;
 }
 
-function fmtCells(XL: XlsxModule, ws: any, colLetter: string, startRow: number, fmt: string): void {
-  // ไล่จนถึงแถวสุดท้ายของชีต (จาก !ref) — ข้ามแถวว่างระหว่างหมวดงาน (อย่าแตก break แบbbเดิม ททำให้หมวดหลังไม่ได้ format)
+// ไล่จัดรูปแบบตัวเลขทั้งคอลัมน์ (ข้ามแถวที่ไม่มี cell โดยไม่หยุด — กันแถวว่างคั่นหมวดงานทำให้หมวดถัดไปไม่ถูก format)
+export function fmtCells(XL: XlsxModule, ws: any, colLetter: string, startRow: number, fmt: string): void {
+  // ไล่จนถึงแถวสุดท้ายของชีต (จาก !ref) — ข้ามแถวว่างระหว่างหมวดงาน (ห้าม break เมื่อเจอแถวว่าง ไม่เช่นนั้นหมวดหลังจะไม่ได้ format)
   const refMatch = String(ws["!ref"] ?? "").match(/\d+$/);
   const lastRow = refMatch ? parseInt(refMatch[0], 10) : startRow + 200;
   for (let r = startRow; r <= lastRow; r++) {
@@ -107,7 +115,7 @@ function fmtCells(XL: XlsxModule, ws: any, colLetter: string, startRow: number, 
   }
 }
 
-function buildBoqSheet(XL: XlsxModule, project: BoqProject): any {
+export function buildBoqSheet(XL: XlsxModule, project: BoqProject): any {
   const aoa: (string | number)[][] = [
     [project.name],
     [project.address || ""],
@@ -162,7 +170,7 @@ function projectTotalBaht(project: BoqProject): number {
   return num2(project.items.reduce((a, it) => a + itemTotal(it), 0));
 }
 
-function buildSectionSummarySheet(XL: XlsxModule, project: BoqProject): any {
+export function buildSectionSummarySheet(XL: XlsxModule, project: BoqProject): any {
   const aoa: (string | number)[][] = [["หมวดงาน", "รวมเงิน (บาท)"]];
   for (const s of sectionTotals(project)) aoa.push([s.section, num2(s.total)]);
   aoa.push(["รวมทั้งสิ้น", projectTotalBaht(project)]);
@@ -215,7 +223,7 @@ function buildSummarySheet(XL: XlsxModule, project: BoqProject, ruleset: Ruleset
 
 // Uint8Array ของไฟล์ xlsx — ผู้เรียกเอาไปทำ Blob เอง (dynamic import xlsx เฉพาะตอนนี้)
 export async function toXlsxArray(project: BoqProject, ruleset: Ruleset | null | undefined): Promise<Uint8Array> {
-  const XL = await xlsxModule();
+  const XL = await loadXlsx();
   const wb = XL.utils.book_new();
   XL.utils.book_append_sheet(wb, buildBoqSheet(XL, project), "BOQ");
   XL.utils.book_append_sheet(wb, buildSectionSummarySheet(XL, project), "สรุปหมวดงาน");

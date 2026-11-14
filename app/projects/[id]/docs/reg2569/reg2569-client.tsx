@@ -17,6 +17,8 @@ import { computeGovBOQSafe } from "@/lib/calc/compute";
 import { buildReg2569Report, type Reg2569Report } from "@/lib/report2569";
 import { formatSatang, satangToBaht } from "@/lib/calc/money";
 import { bahtText } from "@/lib/bahttext";
+import { EXPORT_MIME, downloadBlob } from "@/lib/export";
+import { reg2569Filename, toReg2569WorkbookArray } from "@/lib/export-reg2569";
 
 function thDate(d: Date): string {
   return d.toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" });
@@ -141,6 +143,8 @@ export default function Reg2569Client({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<BoqProject | null>(null);
   const [rulesets, setRulesets] = useState<Ruleset[]>([]);
   const [only, setOnly] = useState<number | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportErr, setExportErr] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -218,6 +222,21 @@ export default function Reg2569Client({ projectId }: { projectId: string }) {
   const p1Pages = rep.p1Sheets.length;
   const today = thDate(new Date());
 
+  // ชุดเผยแพร่ตามข้อ 20 — xlsx หลายชีต (เกิดเฉพาะชีตที่มีข้อมูลจริง)
+  const exportPublish = async () => {
+    if (exporting) return;
+    setExporting(true);
+    setExportErr(null);
+    try {
+      const data = await toReg2569WorkbookArray(project, pinnedRs, rep);
+      downloadBlob(data, EXPORT_MIME.xlsx, reg2569Filename(project));
+    } catch (e) {
+      setExportErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const SHEETS = buildSheets({ project, committee, rep, area, avgPerSqm, p1Pages });
 
   return (
@@ -227,8 +246,20 @@ export default function Reg2569Client({ projectId }: { projectId: string }) {
         <a href={`/projects/${projectId}`} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">← กลับ editor</a>
         <a href={`/projects/${projectId}/docs`} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">ชุดเอกสารโครงเดิม (10 ฉบับ)</a>
         <button onClick={() => window.print()} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800">พิมพ์ทั้งชุด (9 ชิ้น)</button>
-        <span className="text-xs text-slate-500">รายงานการคำนวณราคากลางงานก่อสร้างอาคาร ตามข้อ 11 เล่ม 2 · หลักเกณฑ์ พ.ศ. 2569</span>
+        <button
+          onClick={exportPublish}
+          disabled={exporting || !rep}
+          className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+        >
+          {exporting ? "กำลังสร้างไฟล์…" : "ดาวน์โหลดชุดเผยแพร่ (xlsx)"}
+        </button>
+        <span className="text-xs text-slate-500">รายงานการคำนวณราคากลางงานก่อสร้างอาคาร ตามข้อ 11 เล่ม 2 · หลักเกณฑ์ พ.ศ. 2569 · ชุดเผยแพร่ตามข้อ 20</span>
       </div>
+      {exportErr && (
+        <div className="no-print mb-4 rounded border border-red-300 bg-red-50 p-3 text-xs text-red-900">
+          สร้างไฟล์ชุดเผยแพร่ไม่สำเร็จ: {exportErr}
+        </div>
+      )}
       {rep.warnings.length > 0 && (
         <div className="no-print mb-4 rounded border border-amber-400 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
           <b>คำเตือนก่อนพิมพ์ ({rep.warnings.length} ข้อ):</b>
