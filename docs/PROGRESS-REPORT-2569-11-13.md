@@ -536,3 +536,12 @@ Golden ที่ตรึงในเทสต์ (คัดจากหน้�
 - **F6 — radio `name="rainy"` ตายตัวใน machinery-calculator**: เปลี่ยนเป็น `const rid = useId()` (เรียกที่ top ของ component) แล้ว `name={`rainy-${rid}`}` กัน group ชนกันเมื่อมีหลายชุดกฎในการ์ดเดียว
 - **notes ที่ปิดเพิ่ม**: N3 guard `Number.isFinite(fuelPriceSatang)` + เทสต์ NaN/Infinity · N4 ปฏิเสธราคาน้ำมันทศนิยม >2 ตำแหน่ง (ทั้งเครื่องคิด ว 475 และ ว 477 — ไม่ปัดเงียบจนเปลี่ยนช่วง) · N5 ข้อความเมื่อไม่พบประเภทรถที่เลือก · N6 ป้ายระยะแยก "1–200 อ่านตาราง · 201–1000 กม.ละ" ทั้งแถวสรุปและ `<details>` · N7 `quantity.test.ts` 11 เคส · N8 assert 11.14/6.61 ในเทสต์ · N9 สถานะรอบ 8 ใน reg-2569 README
 - คงเป็น backlog: N1 (ใช้ accessor กลางใน transport), N2 (`BAD_GROSS` แยกจาก `BAD_QUANTITY`), N10 (ส่งต่อ `sourceKind`/`verifiedAgainstGazette` **ในผลลัพธ์ `transportCost`** — ปัจจุบันมีใน ruleset แล้ว แต่ผลลัพธ์ยังไม่ส่งต่อ; ทำเมื่อผูกเข้า PriceEvidence/BOQ)
+
+### 14.6 Commit + deploy (ปิดรอบ 8)
+
+- Commit `97d14c4e3c70922a1bc15745f3e349de43355aa1` บน `main` — push หลัง rebase เหนือ automated TPSO snapshots `ca31b59`/`74e016d` (ไม่มี conflict) · ตรวจซ้ำหลัง rebase: vitest 256/256 · tsc EXIT=0 · build EXIT=0
+- GitHub commit status ของ SHA นี้: **Vercel = success** ("Deployment has completed", 2026-11-16 03:20 UTC)
+- Production `https://iserv-boq.vercel.app/rulesets` = **HTTP 200** · data chunk ที่เสิร์ฟ `542.34b6072d31d61bd6.js` (347,812 ไบต์) ตรงกับ build ในเครื่องและมี `reg2569-transport-w477` · `d6cd76a55309fc1d` · `6cfd025019e1b05e`
+- ทดสอบบน production (ติดตั้งชุด ว 477 ใหม่ผ่าน UI): การ์ดแสดง checksum `6cfd0250…` · หัวตาราง "ราคาน้ำมันดีเซล ที่ อำเภอเมือง" · เงื่อนไข "ภูมิประเทศเป็น ที่ราบ · ผิวทางลาดยาง · และการจราจรปกติ"
+- ผลคำนวณบน production: ไม่ติ๊กยืนยัน = ไม่คำนวณ · 25.00 บาท/ลิตร ระยะ 1 กม. 12.5 ตัน = **168.75** · 201 กม. = **615.06** · 1000 กม. = **3,060.00** · ต่อลบ.ม. 2.5 = **47.23** · ราคาน้ำมัน `25.005` ถูกปฏิเสธ (ไม่ปัดเป็นช่วงถัดไป)
+- note (ไม่บล็อก): ข้อความติดตั้งมี note "ไฟล์ไม่มี checksum" เพราะ `installW477()` ตัด `checksum` ระดับชุดก่อน `prepareImport` ตามดีไซน์เดิม (แม้ข้อความเดียวกันจะบอกว่า checksum รายช่วง/รายประเภท/ชุดตรวจผ่าน) — พิจารณาเก็บ checksum ไว้ให้ `prepareImport` ตรวจแทนการลบ เพื่อให้ข้อความไม่ขัดกันและได้การตรวจเพิ่มอีกชั้น
