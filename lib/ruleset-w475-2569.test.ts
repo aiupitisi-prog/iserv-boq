@@ -221,9 +221,9 @@ describe("ว 475 — โครงสร้างตาราง", () => {
     ).toBe(rs.checksum);
   });
 
-  it("backward-compat: ชุดกฎที่ไม่มี machinerySchedule ยังได้ checksum เดิม (ว 480 = f15226a818ecc23e, ว 477 = b1e7141b0648d584)", async () => {
+  it("backward-compat: ชุดกฎที่ไม่มี machinerySchedule ยังได้ checksum เดิม (ว 480 = f15226a818ecc23e, ว 477 = 6cfd025019e1b05e)", async () => {
     expect(await rulesetChecksum(getW480Ruleset())).toBe("f15226a818ecc23e");
-    expect(await rulesetChecksum(getW477Ruleset())).toBe("b1e7141b0648d584");
+    expect(await rulesetChecksum(getW477Ruleset())).toBe("6cfd025019e1b05e");
     const empty = await rulesetChecksum({ factorF: null, labor: null, contingencyPct: null, swcPct: null, durableHandlingPct: null });
     expect(await rulesetChecksum({ factorF: null, labor: null, contingencyPct: null, swcPct: null, durableHandlingPct: null, machinerySchedule: undefined })).toBe(empty);
     // bands = [] = ไม่ระบุตาราง → checksum เท่ากับไม่มีตาราง

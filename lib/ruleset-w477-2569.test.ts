@@ -115,8 +115,18 @@ describe("ว 477 — โครงสร้างตาราง", () => {
     expect(W477_2569_SCHEDULE.conditions.join(" ")).toContain("ลาดยาง");
     expect(W477_2569_SCHEDULE.conditions.join(" ")).toContain("จราจรปกติ");
     expect(W477_2569_FUEL_PRICE_BASIS).toBe(W477_2569_SCHEDULE.fuelPriceBasis);
-    expect(W477_2569_SCHEDULE.fuelPriceBasis).toContain("ดีเซล");
-    // ตารางใช้ได้เฉพาะเงื่อนไขนี้ — ต้องไม่เป็นค่าว่าง (ผู้เรียกต้องเตือนเมื่อสภาพงานไม่ตรง)
+    // pin ข้อความหัวตารางแบบตรงตัว — กัน norm() ถอยหลังกลับไปแปลง ้+า ผิด (ราคาน ้ามัน/อ้าเภอ)
+    expect(W477_2569_SCHEDULE.fuelPriceBasis).toBe("ราคาน้ำมันดีเซล ที่ อำเภอเมือง");
+    expect(W477_2569_SCHEDULE.conditions[0]).toBe("ภูมิประเทศเป็น ที่ราบ"); // ช่องว่างตามที่พิมพ์จริง (หน้า 9)
+    expect(W477_2569_SCHEDULE.conditions[1]).toBe("ผิวทางลาดยาง");
+    expect(W477_2569_SCHEDULE.conditions[2]).toBe("และการจราจรปกติ");
+    for (const s of W477_2569_SCHEDULE.sections) {
+      expect(s.titlePrinted).toContain("กรณีน้ำหนักรวมไม่เกิน");
+      // ต้องไม่เหลือรูปเพี้ยนเดิมจาก text layer ("กรณีน ้าหนัก" = น + ช่องว่าง + ้ + า)
+      expect(s.titlePrinted).not.toMatch(/น\s*้\s*า/);
+    }
+    // คำว่า "สร้าง" ใช้ ้+า จริง — norm ต้องไม่แปลงเป็น ำ (ล็อกชื่อชุดที่แสดงกับผู้ใช้)
+    expect(getW477Ruleset().name).toContain("ก่อสร้าง");
     expect(W477_2569_SCHEDULE.conditions.every((c) => c.trim().length > 0)).toBe(true);
   });
 
@@ -126,7 +136,7 @@ describe("ว 477 — โครงสร้างตาราง", () => {
     expect(W477_2569_SCHEDULE.notices[0]).toContain("201 กม.");
     expect(W477_2569_SCHEDULE.notices[0]).toContain("1000 กม.");
     expect(W477_2569_SCHEDULE.notices[1]).toContain("คูณด้วยอัตราค่าขนส่งต่อตัน");
-    expect(W477_2569_SCHEDULE.notices[2]).toContain("เชื้อเพลิงเฉลี่ย");
+    expect(W477_2569_SCHEDULE.notices[2]).toBe("อัตราน้ำมันเชื้อเพลิงเฉลี่ย");
     expect(W477_2569_SCHEDULE.unit).toBe("satang");
 
     // helper ประกอบข้อความพร้อมค่าของแต่ละช่วงน้ำมัน

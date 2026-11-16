@@ -1,16 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { WorkTypeCode } from "@/lib/ruleset";
+import type { TransportSchedule, WorkTypeCode } from "@/lib/ruleset";
 import { loadRulesets, Ruleset, saveRulesets, WORK_TYPE_LABELS } from "@/lib/ruleset";
 import { prepareImport } from "@/lib/ruleset-import";
 import MachineryCalculator from "./machinery-calculator";
+import TransportCalculator from "./transport-calculator";
 
 // หน้าจัดการชุดกฎราคากลาง (F3.3 ส่วนประกอบเครื่องยนต์)
 // กฎเหล็ก: ตัวเลขกฎหมายเข้าระบบได้จากเอกสารทางการเท่านั้น — ระบบตรวจเฉพาะ "โครงสร้าง/ความสมเหตุสมผลของตาราง"
 // ไม่ตรวจว่าตัวเลขถูกตามกฎหมาย (ผู้นำเข้าต้องอ้างเอกสารเอง — sourceDoc บังคับ)
 
 type ImportResult = { ok: boolean; message: string };
+
+// ป้ายช่วงระยะของตารางขนส่ง — แยก "ช่วงอ่านตาราง" กับ "ช่วงคิด กม.ละ" ไม่ให้อ่านรวมเป็น 1–1000
+function transportDistanceLabel(s: TransportSchedule): string {
+  const b = s.sections[0]?.bands[0];
+  if (!b) return "?";
+  const tableEnd = s.distanceStartKm + b.perTonSatang.length - 1;
+  return b.farMaxKm > tableEnd
+    ? `${s.distanceStartKm}–${tableEnd} กม. อ่านตาราง · ${tableEnd + 1}–${b.farMaxKm} กม. กม.ละ`
+    : `${s.distanceStartKm}–${tableEnd} กม.`;
+}
 
 const SAMPLE_JSON = `{
   "name": "(ตัวอย่างสมมุติ) หลักเกณฑ์การคำนวณราคากลางงานก่อสร้าง พ.ศ. 2569",
@@ -175,6 +186,40 @@ export default function RulesetsPage() {
     }
   }
 
+  // ติดตั้งชุดตารางค่าขนส่ง ว 477 ที่ generate ไว้ใน repo (lib/ruleset-w477-2569.ts — GENERATED ห้ามแก้มือ)
+  // ตรวจ checksum รายช่วง/รายประเภท/ชุดก่อน แล้วผ่าน prepareImport (ตรวจ transportScheduleChecksum อีกชั้น)
+  async function installW477() {
+    setBusy(true);
+    setResult(null);
+    try {
+      const w = await import("@/lib/ruleset-w477-2569");
+      const s = w.W477_2569_SCHEDULE;
+      const ok = window.confirm(
+        "ติดตั้งชุดตารางค่าขนส่งวัสดุก่อสร้าง ตามประกาศ ว 477 ลงเครื่องนี้?\n" +
+          `(${s.sections.length} ประเภทรถ × ${s.sections[0]?.bands.length ?? 0} ช่วงราคาน้ำมัน · ระยะ ${transportDistanceLabel(s)} — ระบบจะตรวจ checksum รายช่วง/รายประเภท/ชุดก่อนบันทึก)\n\n` +
+          "⚠ ตัวเลขถอดจาก PDF mirror (Yotathai) ยังต้องยืนยันกับราชกิจจานุเบกษา/เล่มจริง " +
+          "ก่อนใช้คำนวณเอกสารที่ส่งหน่วยงานจริง",
+      );
+      if (!ok) return;
+      const bad = await w.verifyW477Checksums();
+      if (bad.length > 0) throw new Error(`checksum ชุดข้อมูล ว 477 ตรวจไม่ผ่าน: ${bad.join(" · ")} — ไฟล์เพี้ยนจากต้นฉบับที่ generate ห้ามติดตั้ง`);
+      const base: Record<string, unknown> = { ...w.getW477Ruleset() };
+      delete base.checksum; // checksum ระดับชุดกฎให้ prepareImport คำนวณใหม่ (ตรวจ transportScheduleChecksum เอง)
+      const { rs: prepared, note } = await prepareImport(JSON.stringify(base));
+      const existing = list.find((x) => x.id === prepared.id);
+      if (existing && existing.checksum !== prepared.checksum) {
+        throw new Error(`มีชุดกฎ id ${prepared.id.slice(0, 8)}… อยู่แล้วโดย checksum ต่างกัน — ลบชุดกฎเดิมออกก่อนติดตั้งใหม่`);
+      }
+      const next = existing ? list.map((x) => (x.id === prepared.id ? prepared : x)) : [...list, prepared];
+      persist(next);
+      setResult({ ok: true, message: `ติดตั้งสำเร็จ: ${prepared.name} (checksum รายช่วง/รายประเภท/ชุด ตรวจผ่าน)${note ? " — " + note : ""}` });
+    } catch (e) {
+      setResult({ ok: false, message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function exportRs(rs: Ruleset) {
     const blob = new Blob([JSON.stringify(rs, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -271,6 +316,19 @@ export default function RulesetsPage() {
               {busy ? "กำลังตรวจ…" : "ติดตั้งชุด ว 475 ลงเครื่องนี้"}
             </button>
           </div>
+          <div className="border-t border-slate-200 pt-3">
+            <p className="text-xs text-slate-600">
+              ชุดตารางค่าขนส่งวัสดุก่อสร้าง ตามประกาศ <b>ว 477</b> — ติดตั้งแล้วจะเปิดใช้
+              <b> เครื่องคิดค่าขนส่ง</b> ใต้ชุดกฎในรายการด้านล่าง (ต้องยืนยันเงื่อนไขสภาพงานก่อนคำนวณ)
+            </p>
+            <button
+              onClick={installW477}
+              disabled={busy}
+              className="mt-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-40"
+            >
+              {busy ? "กำลังตรวจ…" : "ติดตั้งชุด ว 477 ลงเครื่องนี้"}
+            </button>
+          </div>
           <p className="text-xs text-amber-900">
             ⚠ ตัวเลขถอดจาก PDF mirror (Yotathai) — ยังต้องยืนยันกับราชกิจจานุเบกษา/เล่มจริงก่อนใช้คำนวณเอกสารที่ส่งหน่วยงานจริง
           </p>
@@ -328,6 +386,12 @@ export default function RulesetsPage() {
                   <span>
                     ตารางค่าเครื่องจักร (ว 475): {rs.machinerySchedule.items.filter((i) => i.priced !== "none").length} บรรทัดที่มีราคา +{" "}
                     {rs.machinerySchedule.items.filter((i) => i.priced === "none").length} หัวข้อ × {rs.machinerySchedule.bands.length} ช่วงน้ำมัน
+                  </span>
+                )}
+                {rs.transportSchedule !== undefined && rs.transportSchedule.sections.length > 0 && (
+                  <span>
+                    ตารางค่าขนส่ง (ว 477): {rs.transportSchedule.sections.length} ประเภทรถ ×{" "}
+                    {rs.transportSchedule.sections[0].bands.length} ช่วงน้ำมัน · ระยะ {transportDistanceLabel(rs.transportSchedule)}
                   </span>
                 )}
                 {!rs.factorF && !(rs.factorFTables !== undefined && rs.factorFTables.length > 0) && (
@@ -419,6 +483,18 @@ export default function RulesetsPage() {
                   </summary>
                   <MachineryCalculator
                     schedule={rs.machinerySchedule}
+                    provenance={{ rulesetId: rs.id, rulesetChecksum: rs.checksum }}
+                  />
+                </details>
+              )}
+
+              {rs.transportSchedule !== undefined && rs.transportSchedule.sections.length > 0 && (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-sm text-blue-700">
+                    เครื่องคิดค่าขนส่ง (ว 477 — {rs.transportSchedule.sections.length} ประเภทรถ × {rs.transportSchedule.sections[0].bands.length} ช่วงน้ำมัน · ระยะ {transportDistanceLabel(rs.transportSchedule)})
+                  </summary>
+                  <TransportCalculator
+                    schedule={rs.transportSchedule}
                     provenance={{ rulesetId: rs.id, rulesetChecksum: rs.checksum }}
                   />
                 </details>

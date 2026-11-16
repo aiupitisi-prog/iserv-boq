@@ -18,6 +18,7 @@
 import type { MachineryRateBand, MachineryRateItem, MachineryRateSchedule } from "../ruleset";
 import { findMachineryBand, findMachineryItem, machineryRateAt, type MachineryRate } from "../ruleset";
 import { formatSatang, type Satang } from "./money";
+import { amountFromScaled, scaledQuantity } from "./quantity";
 
 export type MachineryCostQuery = {
   entryNo: number;
@@ -57,10 +58,6 @@ export type MachineryCostResult = MachineryCostOk | MachineryCostErr;
 const err = (code: MachineryCostErrorCode, error: string): MachineryCostErr => ({ ok: false, code, error });
 
 const fmtFuel = (satang: number): string => (satang / 100).toFixed(2);
-
-// ปริมาณรองรับทศนิยมไม่เกิน 4 ตำแหน่ง → คูณ 10000 เป็นจำนวนเต็มเพื่อคูณแบบเลขเต็ม
-const QTY_SCALE = 10_000;
-const QTY_EPS = 1e-6;
 
 export function machineryCost(schedule: MachineryRateSchedule, q: MachineryCostQuery): MachineryCostResult {
   const item = findMachineryItem(schedule, { entryNo: q.entryNo, label: q.label, occurrence: q.occurrence });
@@ -156,15 +153,9 @@ export function machineryCost(schedule: MachineryRateSchedule, q: MachineryCostQ
 
   const perUnitSatang = total;
   // คูณแบบ integer scaling: (สตางค์/หน่วย × ปริมาณ×10000) แล้วหาร 10000 ปัด half-up ครั้งเดียว
-  let amountSatang: Satang | null = null;
-  if (scaled.scaled !== null) {
-    const numerator = perUnitSatang * scaled.scaled; // สตางค์ × 10000
-    // ตรวจทั้งก่อนและหลังบวกครึ่งสเกล (กันการปัดที่ขอบ safe integer)
-    if (!Number.isSafeInteger(numerator) || !Number.isSafeInteger(numerator + QTY_SCALE / 2)) {
-      return err("BAD_QUANTITY", safeAmountError(q.quantity));
-    }
-    amountSatang = Math.floor((numerator + QTY_SCALE / 2) / QTY_SCALE);
-  }
+  const amount = amountFromScaled(perUnitSatang, scaled.scaled, q.quantity);
+  if (!amount.ok) return err("BAD_QUANTITY", amount.error);
+  const amountSatang = amount.amountSatang;
 
   return {
     ok: true,
@@ -210,23 +201,7 @@ function sourceNotes(
   return notes;
 }
 
-// ปริมาณ: รับทศนิยมไม่เกิน 4 ตำแหน่ง แล้วคูณ 10,000 เป็นจำนวนเต็ม (ไม่ให้ float เพี้ยนตอนคูณ)
-function scaledQuantity(qty: number | undefined): { ok: true; scaled: number | null } | { ok: false; error: string } {
-  if (qty === undefined) return { ok: true, scaled: null };
-  if (!Number.isFinite(qty)) return { ok: false, error: `ปริมาณต้องเป็นตัวเลข (ได้ ${String(qty)})` };
-  if (qty <= 0) return { ok: false, error: `ปริมาณต้องมากกว่า 0 (ได้ ${qty})` };
-  const raw = qty * QTY_SCALE;
-  const scaled = Math.round(raw);
-  // tolerance ตาม ulp ของ double (ขั้นต่ำ 1e-6) — ค่าสัมบูรณ์ 1e-6 ไม่พอเมื่อ raw ใหญ่มาก
-  const tol = Math.max(QTY_EPS, Number.EPSILON * Math.max(1, Math.abs(raw)) * 8);
-  if (Math.abs(raw - scaled) > tol) {
-    return { ok: false, error: `ปริมาณรองรับทศนิยมไม่เกิน 4 ตำแหน่ง (ได้ ${qty}) — แปลงหน่วยให้เล็กลงก่อน` };
-  }
-  if (!Number.isSafeInteger(scaled)) {
-    return { ok: false, error: `ปริมาณมากเกินขอบเขตที่คำนวณได้อย่างแม่นยำ (ได้ ${qty}) — เกิน Number.MAX_SAFE_INTEGER` };
-  }
-  return { ok: true, scaled };
-}
+// ปริมาณ: ใช้ตัวช่วยกลาง `quantity.ts` (ทศนิยม ≤4 ตำแหน่ง + integer scaling)
 
 const safeAmountError = (qty: number | undefined): string =>
   `ปริมาณ ${qty} มากเกินขอบเขตที่คำนวณได้อย่างแม่นยำ (สตางค์เกิน Number.MAX_SAFE_INTEGER) — ลดปริมาณหรือแยกเป็นหลายรายการ`;

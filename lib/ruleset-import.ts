@@ -369,7 +369,15 @@ export async function prepareImport(raw: string): Promise<{ rs: Ruleset; note: s
       // ตรึงข้อมูลลึก — checksum ผูกกับเนื้อหาตอน import; แก้ภายหลัง = checksum ไม่ตรงกับข้อมูลจริง
       transportSchedule = deepFreeze(s);
       const bands = s.sections.reduce((a, x) => a + x.bands.length, 0);
-      transportNote = `ไฟล์มีตารางค่าขนส่ง (transportSchedule) ${s.sections.length} ประเภทารถ × ${bands} ช่วงราคาน้ำมัน — จำนวนเงินเป็นสตางค์ · ต้องยืนยันตัวเลขกับเอกสารต้นทางก่อนใช้คำนวณจริง`;
+      const bandCounts = s.sections.map((x) => x.bands.length);
+      const minBands = Math.min(...bandCounts);
+      const maxBands = Math.max(...bandCounts);
+      // นับช่วงต่อประเภท — ไม่เขียน "3 ประเภท × 135 ช่วง" เพราะอ่านเหมือน 135 ช่วงต่อประเภท
+      const bandDesc =
+        minBands === maxBands
+          ? `${minBands} ช่วงราคาน้ำมัน/ประเภท (รวม ${bands} ช่วง)`
+          : `${minBands}–${maxBands} ช่วงราคาน้ำมัน/ประเภท (รวม ${bands} ช่วง)`;
+      transportNote = `ไฟล์มีตารางค่าขนส่ง (transportSchedule) ${s.sections.length} ประเภทารถ · ${bandDesc} — จำนวนเงินเป็นสตางค์ · ต้องยืนยันตัวเลขกับเอกสารต้นทางก่อนใช้คำนวณจริง`;
     } else {
       transportNote = "ไฟล์ระบุ transportSchedule ว่าง (sections = []) — ถือว่าไม่ระบุตาราง ตัดทิ้งเพื่อให้ checksum เทียบเท่าแบบไม่มีตาราง";
     }

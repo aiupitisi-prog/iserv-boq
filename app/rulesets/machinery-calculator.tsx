@@ -3,22 +3,13 @@
 // เครื่องคิดค่าเครื่องจักรตามตาราง กค 0433.2/ว 475 — หน้าจออ้างอิง (ข้อมูลอยู่ในชุดกฎที่ติดตั้งในเครื่อง)
 // กฎ: ไม่เดาค่า — ราคาน้ำมันนอกช่วงตาราง/บรรทัดไม่มีราคา → แสดง error ตามผลจาก lib/calc/machinery.ts
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import type { MachineryRateSchedule } from "@/lib/ruleset";
 import { machineryCost } from "@/lib/calc/machinery";
 import { formatSatang, toSatang } from "@/lib/calc/money";
+import { decimalPlaces, parseDecimal } from "./decimal-input";
 
 const keyOf = (i: { entryNo: number; label: string; occurrence: number }) => `${i.entryNo}|${i.label}|${i.occurrence}`;
-
-// รับเฉพาะเลขฐาน 10 ที่ใช้ "." เป็นทศนิยม — ไม่รับ "," (กัน "2,5" ถูกตีความเป็น 25 แล้วคำนวณผิดเงียบ)
-const DECIMAL_ONLY = /^\d+(\.\d+)?$/;
-
-function parseDecimal(text: string): number | null {
-  const t = text.trim();
-  if (t === "" || !DECIMAL_ONLY.test(t)) return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
-}
 
 export default function MachineryCalculator({
   schedule,
@@ -27,6 +18,7 @@ export default function MachineryCalculator({
   schedule: MachineryRateSchedule;
   provenance?: { rulesetId?: string; rulesetChecksum?: string };
 }) {
+  const rid = useId(); // กัน radio group ชนกันเมื่อมีหลายชุดกฎ/หลายการ์ดในหน้าเดียว
   const priced = useMemo(() => schedule.items.filter((i) => i.priced !== "none"), [schedule]);
   const [sel, setSel] = useState(() => (priced[0] ? keyOf(priced[0]) : ""));
   const [fuel, setFuel] = useState("");
@@ -36,8 +28,11 @@ export default function MachineryCalculator({
   const picked = priced.find((i) => keyOf(i) === sel) ?? null;
 
   const fuelNum = parseDecimal(fuel);
-  const fuelInvalid = fuel.trim() !== "" && fuelNum === null;
-  const fuelSatang = fuelNum !== null && fuelNum > 0 ? toSatang(fuelNum) : null;
+  const fuelDecimals = decimalPlaces(fuel);
+  const fuelTooPrecise = fuel.trim() !== "" && fuelDecimals !== null && fuelDecimals > 2;
+  const fuelMalformed = fuel.trim() !== "" && fuelNum === null;
+  const fuelInvalid = fuelMalformed || fuelTooPrecise;
+  const fuelSatang = !fuelInvalid && fuelNum !== null && fuelNum > 0 ? toSatang(fuelNum) : null;
 
   const qtyRaw = qty.trim();
   const qtyParsed = parseDecimal(qtyRaw);
@@ -101,10 +96,10 @@ export default function MachineryCalculator({
           สภาพงาน
           <div className="mt-1 flex gap-3 rounded border border-slate-300 bg-white px-2 py-1.5">
             <label className="flex items-center gap-1">
-              <input type="radio" name="rainy" checked={!rainy} onChange={() => setRainy(false)} /> ปกติ
+              <input type="radio" name={`rainy-${rid}`} checked={!rainy} onChange={() => setRainy(false)} /> ปกติ
             </label>
             <label className="flex items-center gap-1">
-              <input type="radio" name="rainy" checked={rainy} onChange={() => setRainy(true)} /> ฝนชุก
+              <input type="radio" name={`rainy-${rid}`} checked={rainy} onChange={() => setRainy(true)} /> ฝนชุก
             </label>
           </div>
         </div>
@@ -121,9 +116,15 @@ export default function MachineryCalculator({
         </label>
       </div>
 
-      {fuelInvalid && (
+      {fuelMalformed && (
         <p className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
           ราคาน้ำมันไม่ถูกต้อง — ใช้ตัวเลขทศนิยมฐาน 10 และจุด "." (เช่น 30.50) ระบบไม่รับเครื่องหมายจุลภาค
+        </p>
+      )}
+
+      {fuelTooPrecise && (
+        <p className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+          ราคาน้ำมันต้องมีทศนิยมไม่เกิน 2 ตำแหน่ง (เช่น 30.50) — ระบบไม่ปัดเศษราคาน้ำมันให้ เพราะอาจเปลี่ยนช่วงราคาในตาราง
         </p>
       )}
 

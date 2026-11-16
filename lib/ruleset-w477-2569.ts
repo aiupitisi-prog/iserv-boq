@@ -14,8 +14,8 @@
 // สถิติ: 3 ประเภทารถ · 45 ช่วงราคาน้ำมัน/ประเภท · ระยะ 1–200 กม. · แถวราคา 27,000
 //   6 ล้อ ≤15 ตัน · 10 ล้อ ≤25 ตัน · 10 ล้อ + รถลากพ่วง ≤47 ตัน
 // อัตราเกินตาราง: ระยะ 201–1000 กม. คิดเป็น กม.ละ (ต่อตัน/ต่อลบ.ม.) — ตามหมายเหตุข้อ 1/2 ของตาราง
-// เงื่อนไขการใช้ตาราง (หัวตารางทุกหน้า): ภูมิประเทศเป็น ที่ราบ · ผิวทางลาดยาง · และการจราจรปกติ · ราคาน ้ามันดีเซล ที่ อ้าเภอเมือง
-//   ⚠️ ตารางนี้ใช้กับเงื่อนไขที่ระบุเท่านั้น — สภาพงานอื่นต้องใช้ตาราง/วิธีอื่น (ยังไม่มี UI เตือน)
+// เงื่อนไขการใช้ตาราง (หัวตารางทุกหน้า): ภูมิประเทศเป็น ที่ราบ · ผิวทางลาดยาง · และการจราจรปกติ · ราคาน้ำมันดีเซล ที่ อำเภอเมือง
+//   ⚠️ ตารางนี้ใช้กับเงื่อนไขที่ระบุเท่านั้น — สภาพงานอื่นต้องใช้ตาราง/วิธีอื่น (transportCost บังคับยืนยันเงื่อนไขก่อนคำนวณ)
 // คุณภาพการถอด: notes 1 (ตั้งใจแปลง) · issues 0 (ต้องตรวจ — 0 = ผ่าน)
 //
 // checksum: FNV-1a 2×32 (hex 16) บน stableStringify — ตรงกับ computeChecksum ใน lib/ruleset.ts
@@ -28,14 +28,13 @@ export const W477_2569_SOURCE_URL: string = "https://data.yotathai.org/drive/1kK
 export const W477_2569_DISTANCE_START_KM: number = 1;
 export const W477_2569_DISTANCE_END_KM: number = 200;
 
-// เงื่อนไขการใช้ตารางตามหัวตารางทุกหน้า — ผู้เรียกต้องเตือนเมื่อสภาพงานไม่ตรง
-// ⚠️ ยังไม่มี UI เตือน — V4 ใน PROGRESS §9 ยังเปิดอยู่
+// เงื่อนไขการใช้ตารางตามหัวตารางทุกหน้า — transportCost บังคับให้ผู้ใช้ยืนยันก่อนคำนวณ
 export const W477_2569_CONDITIONS: string[] = [
   "ภูมิประเทศเป็น ที่ราบ",
   "ผิวทางลาดยาง",
   "และการจราจรปกติ"
 ];
-export const W477_2569_FUEL_PRICE_BASIS: string = "ราคาน ้ามันดีเซล ที่ อ้าเภอเมือง";
+export const W477_2569_FUEL_PRICE_BASIS: string = "ราคาน้ำมันดีเซล ที่ อำเภอเมือง";
 
 export const W477_2569_SECTIONS: TransportTruckSection[] = [
   {
@@ -43,7 +42,7 @@ export const W477_2569_SECTIONS: TransportTruckSection[] = [
     lorryCount: 6,
     hasTrailer: false,
     maxGrossTons: 15,
-    titlePrinted: "รถบรรทุก 6 ล้อ (กรณีน้าหนักรวมไม่เกิน 15 ตัน)",
+    titlePrinted: "รถบรรทุก 6 ล้อ (กรณีน้ำหนักรวมไม่เกิน 15 ตัน)",
     bands: [
       {
         fuelMinSatang: 2500,
@@ -2212,7 +2211,7 @@ export const W477_2569_SECTIONS: TransportTruckSection[] = [
     lorryCount: 10,
     hasTrailer: false,
     maxGrossTons: 25,
-    titlePrinted: "รถบรรทุก 10 ล้อ (กรณีน้าหนักรวมไม่เกิน 25 ตัน)",
+    titlePrinted: "รถบรรทุก 10 ล้อ (กรณีน้ำหนักรวมไม่เกิน 25 ตัน)",
     bands: [
       {
         fuelMinSatang: 2500,
@@ -4381,7 +4380,7 @@ export const W477_2569_SECTIONS: TransportTruckSection[] = [
     lorryCount: 10,
     hasTrailer: true,
     maxGrossTons: 47,
-    titlePrinted: "รถบรรทุก 10 ล้อ และรถลากพ่วง (กรณีน้าหนักรวมไม่เกิน 47 ตัน)",
+    titlePrinted: "รถบรรทุก 10 ล้อ และรถลากพ่วง (กรณีน้ำหนักรวมไม่เกิน 47 ตัน)",
     bands: [
       {
         fuelMinSatang: 2500,
@@ -6685,12 +6684,12 @@ export const W477_2569_BAND_CHECKSUMS: Record<string, string> = {
   "3:6900": "1a2293f0c868c58e"
 };
 export const W477_2569_SECTION_CHECKSUMS: Record<string, string> = {
-  "1": "d4da8030bc240c55",
-  "2": "987c9a186310ecd2",
-  "3": "1b591780368f21e5"
+  "1": "745331f82275981e",
+  "2": "26ad1e3fa824b15b",
+  "3": "0315ad817d503cc0"
 };
-export const W477_2569_SET_CHECKSUM: string = "3ecf83ccd99c2513";
-export const W477_2569_RULESET_CHECKSUM: string = "b1e7141b0648d584";
+export const W477_2569_SET_CHECKSUM: string = "d6cd76a55309fc1d";
+export const W477_2569_RULESET_CHECKSUM: string = "6cfd025019e1b05e";
 export const W477_2569_QUALITY = { notes: 1, issues: 0 } as const;
 export const W477_2569_STATS = {
   sections: 3,
@@ -6718,7 +6717,7 @@ export const W477_2569_SCHEDULE: TransportSchedule = freezeDeep({
   notices: [
   "ระยะขนส่งตั้งแต่ 201 กม.ถึง 1000 กม. ค่าขนส่งคิดเป็นกม.ละ",
   "การคิดค่าขนส่งใช้ระยะทางขนส่งคูณด้วยอัตราค่าขนส่งต่อตัน หรือต่อลบ.ม.",
-  "อัตราน้้ามันเชื้อเพลิงเฉลี่ย"
+  "อัตราน้ำมันเชื้อเพลิงเฉลี่ย"
 ],
   unit: "satang",
 });

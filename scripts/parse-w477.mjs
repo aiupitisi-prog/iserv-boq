@@ -37,12 +37,19 @@ const fail = (msg) => {
   throw new Error("parse-w477: " + msg);
 };
 
-// — normalize ข้อความไทย (สระ ำ/า เพี้ยนตามฟอนต์) — ตรรกะเดียวกับ parse-w480.mjs —
+// — normalize ข้อความไทย —
+// ฟอนต์ THSarabunPSK ในไฟล์นี้ encodes สระอำ เพี้ยนเป็น ้+า (มี/ไม่มีช่องว่าง) ในหัวตาราง/หมายเหตุ
+//   ตรวจจากหน้า 9–10 และหมายเหตุหน้า 10: "น ้ามัน" → น้ำมัน · "กรณีน ้าหนัก" → กรณีน้ำหนัก ·
+//   "อ้าเภอ" → อำเภอ · "น้้ำมัน" (หมายเหตุ) → น้ำมัน
+//   — ห้ามแปลง ้+า ทุกกรณี เพราะ "สร้าง" (ส ร ้ า ง) เป็น ้+า จริงและต้องคงไว้
+//   — หน้า cover ของแต่ละ section ใช้ ำ (U+0E33) ถูกต้องอยู่แล้ว
 function norm(s) {
-  let t = s.replace(/\s+/g, " ").trim();
-  t = t.replace(/ำ/g, "า");
-  t = t.replace(/ า/g, "ำ");
-  return t;
+  let t = s.normalize("NFC");
+  t = t.replace(/\u0E19\s*\u0E49\u0E32/g, "\u0E19\u0E49\u0E33"); // น้ำ / น้ำมัน / น้ำหนัก
+  t = t.replace(/\u0E19\u0E49\u0E49\u0E32/g, "\u0E19\u0E49\u0E33"); // หมายเหตุ "น้้ำมัน" → น้ำมัน
+  t = t.replace(/\u0E2D\u0E49\u0E32\u0E40\u0E20\u0E2D/g, "\u0E2D\u0E33\u0E40\u0E20\u0E2D"); // อ้าเภอ → อำเภอ
+  t = t.replace(/\s(?=[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E])/g, ""); // ช่องว่างแทรกก่อนสระ/วรรณยุกต์
+  return t.replace(/\s+/g, " ").trim();
 }
 
 // — ราคา: ตัวประกาศพิมพ์ทศนิยม 2 ตำแหน่ง (บาท) → สตางค์เป็นจำนวนเต็ม —
@@ -177,6 +184,7 @@ let conditionsTemplate = null;
 let fuelPriceBasisTemplate = null;
 
 // แยกบรรทัด "ภูมิประเทศ… ผิวทาง… และการจราจร…" เป็น 3 เงื่อนไขตามที่พิมพ์
+// หมายเหตุ: "ภูมิประเทศเป็น ที่ราบ" มีช่องว่างตามที่พิมพ์จริง (ตรวจภาพหน้า 9) — ห้ามยุบช่องว่างในข้อมูล
 function splitConditionLine(text, pn) {
   const m = /^(.*?ภูมิประเทศ.*?)\s*(ผิวทาง.*?)\s*(และการจราจร.*)$/.exec(text);
   if (!m) fail(`หน้า ${pn}: อ่านเงื่อนไขหัวตาราง (ภูมิประเทศ/ผิวทาง/การจราจร) ไม่ได้: ${JSON.stringify(text)}`);
@@ -689,7 +697,7 @@ const file = `// ⚠️ ไฟล์นี้ GENERATED อัตโนมัต
 //   ${sections.map((s) => `${s.truckType} ≤${s.maxGrossTons} ตัน`).join(" · ")}
 // อัตราเกินตาราง: ระยะ ${sections[0].bands[0].farMinKm}–${sections[0].bands[0].farMaxKm} กม. คิดเป็น กม.ละ (ต่อตัน/ต่อลบ.ม.) — ตามหมายเหตุข้อ 1/2 ของตาราง
 // เงื่อนไขการใช้ตาราง (หัวตารางทุกหน้า): ${conditionsTemplate.join(" · ")} · ${fuelPriceBasisTemplate}
-//   ⚠️ ตารางนี้ใช้กับเงื่อนไขที่ระบุเท่านั้น — สภาพงานอื่นต้องใช้ตาราง/วิธีอื่น (ยังไม่มี UI เตือน)
+//   ⚠️ ตารางนี้ใช้กับเงื่อนไขที่ระบุเท่านั้น — สภาพงานอื่นต้องใช้ตาราง/วิธีอื่น (transportCost บังคับยืนยันเงื่อนไขก่อนคำนวณ)
 // คุณภาพการถอด: notes ${notesUnique.length} (ตั้งใจแปลง) · issues ${issuesUnique.length} (ต้องตรวจ — 0 = ผ่าน)
 //
 // checksum: FNV-1a 2×32 (hex 16) บน stableStringify — ตรงกับ computeChecksum ใน lib/ruleset.ts
@@ -702,8 +710,7 @@ export const W477_2569_SOURCE_URL: string = ${JSON.stringify(sourceUrl)};
 export const W477_2569_DISTANCE_START_KM: number = ${distanceStartKm};
 export const W477_2569_DISTANCE_END_KM: number = ${distanceEndKm};
 
-// เงื่อนไขการใช้ตารางตามหัวตารางทุกหน้า — ผู้เรียกต้องเตือนเมื่อสภาพงานไม่ตรง
-// ⚠️ ยังไม่มี UI เตือน — V4 ใน PROGRESS §9 ยังเปิดอยู่
+// เงื่อนไขการใช้ตารางตามหัวตารางทุกหน้า — transportCost บังคับให้ผู้ใช้ยืนยันก่อนคำนวณ
 export const W477_2569_CONDITIONS: string[] = ${pretty(conditionsTemplate)};
 export const W477_2569_FUEL_PRICE_BASIS: string = ${JSON.stringify(fuelPriceBasisTemplate)};
 
