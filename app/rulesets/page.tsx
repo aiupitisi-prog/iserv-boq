@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import type { TransportSchedule, WorkTypeCode } from "@/lib/ruleset";
 import { loadRulesets, Ruleset, saveRulesets, WORK_TYPE_LABELS } from "@/lib/ruleset";
 import { prepareImport } from "@/lib/ruleset-import";
+import { countWageRates } from "@/lib/calc/wage";
 import MachineryCalculator from "./machinery-calculator";
 import TransportCalculator from "./transport-calculator";
+import WageCalculator from "./wage-calculator";
 
 // หน้าจัดการชุดกฎราคากลาง (F3.3 ส่วนประกอบเครื่องยนต์)
 // กฎเหล็ก: ตัวเลขกฎหมายเข้าระบบได้จากเอกสารทางการเท่านั้น — ระบบตรวจเฉพาะ "โครงสร้าง/ความสมเหตุสมผลของตาราง"
@@ -220,6 +222,41 @@ export default function RulesetsPage() {
     }
   }
 
+  // ติดตั้งชุดบัญชีค่าแรงงาน/ดำเนินการ ว 480 ที่ generate ไว้ใน repo (lib/ruleset-w480-2569.ts — GENERATED ห้ามแก้มือ)
+  // ตรวจ checksum รายรายการ/ชุด/ruleset ก่อน แล้วผ่าน prepareImport (ตรวจ wageScheduleChecksum อีกชั้น)
+  async function installW480() {
+    setBusy(true);
+    setResult(null);
+    try {
+      const w = await import("@/lib/ruleset-w480-2569");
+      const s = w.W480_2569_SCHEDULE;
+      const rateCount = countWageRates(s);
+      const ok = window.confirm(
+        "ติดตั้งชุดบัญชีค่าแรงงาน/ดำเนินการสำหรับถอดแบบ ตามประกาศ ว 480 ลงเครื่องนี้?\n" +
+          `(${s.entries.length} รายการ · ${rateCount.toLocaleString("th-TH")} แถวราคา — ระบบจะตรวจ checksum รายรายการ/ชุด/ruleset ก่อนบันทึก)\n\n` +
+          "⚠ ตัวเลขถอดจาก PDF mirror (Yotathai) ยังต้องยืนยันกับราชกิจจานุเบกษา/เล่มจริง " +
+          "ก่อนใช้คำนวณเอกสารที่ส่งหน่วยงานจริง — ระบบไม่เลือกช่วงจำนวนงานแทนผู้ใช้",
+      );
+      if (!ok) return;
+      const bad = await w.verifyW480Checksums();
+      if (bad.length > 0) throw new Error(`checksum ชุดข้อมูล ว 480 ตรวจไม่ผ่าน: ${bad.join(" · ")} — ไฟล์เพี้ยนจากต้นฉบับที่ generate ห้ามติดตั้ง`);
+      const base: Record<string, unknown> = { ...w.getW480Ruleset() };
+      delete base.checksum; // checksum ระดับชุดกฎให้ prepareImport คำนวณใหม่ (ตรวจ wageScheduleChecksum เอง)
+      const { rs: prepared, note } = await prepareImport(JSON.stringify(base));
+      const existing = list.find((x) => x.id === prepared.id);
+      if (existing && existing.checksum !== prepared.checksum) {
+        throw new Error(`มีชุดกฎ id ${prepared.id.slice(0, 8)}… อยู่แล้วโดย checksum ต่างกัน — ลบชุดกฎเดิมออกก่อนติดตั้งใหม่`);
+      }
+      const next = existing ? list.map((x) => (x.id === prepared.id ? prepared : x)) : [...list, prepared];
+      persist(next);
+      setResult({ ok: true, message: `ติดตั้งสำเร็จ: ${prepared.name} (checksum รายรายการ/ชุด/ruleset ตรวจผ่าน)${note ? " — " + note : ""}` });
+    } catch (e) {
+      setResult({ ok: false, message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function exportRs(rs: Ruleset) {
     const blob = new Blob([JSON.stringify(rs, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -329,6 +366,19 @@ export default function RulesetsPage() {
               {busy ? "กำลังตรวจ…" : "ติดตั้งชุด ว 477 ลงเครื่องนี้"}
             </button>
           </div>
+          <div className="border-t border-slate-200 pt-3">
+            <p className="text-xs text-slate-600">
+              ชุดบัญชีค่าแรงงาน/ดำเนินการสำหรับถอดแบบ ตามประกาศ <b>ว 480</b> — ติดตั้งแล้วจะเปิดใช้
+              <b> เครื่องคิดค่าแรงงาน</b> ใต้ชุดกฎในรายการด้านล่าง (ผู้ใช้ต้องเลือกแถวราคา/ช่วงจำนวนงานเอง)
+            </p>
+            <button
+              onClick={installW480}
+              disabled={busy}
+              className="mt-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-40"
+            >
+              {busy ? "กำลังตรวจ…" : "ติดตั้งชุด ว 480 ลงเครื่องนี้"}
+            </button>
+          </div>
           <p className="text-xs text-amber-900">
             ⚠ ตัวเลขถอดจาก PDF mirror (Yotathai) — ยังต้องยืนยันกับราชกิจจานุเบกษา/เล่มจริงก่อนใช้คำนวณเอกสารที่ส่งหน่วยงานจริง
           </p>
@@ -392,6 +442,12 @@ export default function RulesetsPage() {
                   <span>
                     ตารางค่าขนส่ง (ว 477): {rs.transportSchedule.sections.length} ประเภทรถ ×{" "}
                     {rs.transportSchedule.sections[0].bands.length} ช่วงน้ำมัน · ระยะ {transportDistanceLabel(rs.transportSchedule)}
+                  </span>
+                )}
+                {rs.wageSchedule !== undefined && rs.wageSchedule.entries.length > 0 && (
+                  <span>
+                    บัญชีค่าแรงงาน (ว 480): {rs.wageSchedule.entries.length} รายการ ·{" "}
+                    {countWageRates(rs.wageSchedule).toLocaleString("th-TH")} แถวราคา
                   </span>
                 )}
                 {!rs.factorF && !(rs.factorFTables !== undefined && rs.factorFTables.length > 0) && (
@@ -496,6 +552,24 @@ export default function RulesetsPage() {
                   <TransportCalculator
                     schedule={rs.transportSchedule}
                     provenance={{ rulesetId: rs.id, rulesetChecksum: rs.checksum }}
+                  />
+                </details>
+              )}
+
+              {rs.wageSchedule !== undefined && rs.wageSchedule.entries.length > 0 && (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-sm text-blue-700">
+                    เครื่องคิดค่าแรงงาน (ว 480 — {rs.wageSchedule.entries.length} รายการ · {countWageRates(rs.wageSchedule).toLocaleString("th-TH")} แถวราคา)
+                  </summary>
+                  <WageCalculator
+                    schedule={rs.wageSchedule}
+                    provenance={{
+                      rulesetId: rs.id,
+                      rulesetChecksum: rs.checksum,
+                      sourceDoc: rs.sourceDoc,
+                      sourceKind: rs.provenance?.sourceKind,
+                      verifiedAgainstGazette: rs.provenance?.verifiedAgainstGazette,
+                    }}
                   />
                 </details>
               )}
