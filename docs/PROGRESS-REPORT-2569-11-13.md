@@ -666,4 +666,5 @@ Golden ที่ตรึงในเทสต์ (คัดจากหน้�
 - ชุดเก่าเลิกใช้ `calc.total` เป็นราคากลาง: เอกสาร 1/2 ใช้ `rep2569.summary.totalSat` (ปร.4) แบบไม่มี fallback แล้ว · เอกสาร 7 แยก "ยอดเครื่องยนต์เดิม (โครงเดิม — ไม่ใช่ราคากลาง)" ออกจาก "ราคากลางตามระเบียบ 2569 (ปร.4)"
 - `export-contract` มี runtime guard เมื่อผู้เรียกไม่ส่ง `base` · invariant `contractBase.totalSat + expenseSat = summary.totalSat` มีเทสต์
 - **สรุป: PASS** — ไม่มี finding ระดับ block/fix คงเหลือ; ข้อสังเกตที่ไม่บล็อกคือปี พ.ศ. ที่ import แบบ พ.ศ. จะถูกติดป้าย unverified (ถูกต้องตามหลักห้ามเดา) และ U1 สูตร ปร.3 ยังรอตรวจต้นฉบับ
+- **ปิดงาน:** commit `afeb4488a4740b6d3d095169acaade7f954ee11e` push ขึ้น `main` แล้ว · Vercel deployment ของ SHA นี้ **success** (target `https://vercel.com/aiupitisi-7393/iserv-boq/9cYARShMpVxmZpjQcfJUqtRnS9m7`) · prod `https://iserv-boq.vercel.app/rulesets` ตอบ **HTTP 200** (ก่อน rebase มี snapshot commit อัตโนมัติ 2 ตัว จึง rebase แล้วรันเทสต์/tsc/build ซ้ำ — ผ่านทั้งหมด)
 
