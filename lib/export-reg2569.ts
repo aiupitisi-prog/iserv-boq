@@ -13,8 +13,8 @@
 
 import { bahtText } from "./bahttext";
 import type { BoqProject, Committee } from "./boq";
-import { WORK_TYPE_LABELS, type Ruleset } from "./ruleset";
-import type { Reg2569Report } from "./report2569";
+import { WORK_TYPE_LABELS, rulesetBeYear, type Ruleset } from "./ruleset";
+import type { PriceEvidenceRow, Reg2569Report } from "./report2569";
 import {
   MONEY_FMT,
   QTY_FMT,
@@ -121,13 +121,20 @@ function factorNum(f: number | null | undefined): number | "" {
   return Number(f.toFixed(6));
 }
 
-// — หัวแบบฟอร์มราชการ (ชื่อโครงการ/สถานที่/หน่วยงาน/แบบเลขที่/วันที่คำนวณ) —
+// — หัวแบบฟอร์มราชการ (ตามตัวอย่างแบบฟอร์มท้องถิ่น: งานก่อสร้าง / สถานที่ + จังหวัด / หน่วยงาน /
+//   แบบเลขที่ / ประมาณราคากลางโดยคณะกรรมการ / วันที่คำนวณ / หน่วย: บาท) —
 function headRows(project: BoqProject, committee: Committee | undefined, extra: string[] = []): Row[] {
   return [
-    [project.name],
-    [project.address || ""],
-    [committee?.agency ? `หน่วยงาน: ${committee.agency}` : "หน่วยงาน: ………………………………………………"],
-    [`แบบเลขที่ ${committee?.formNo || "……………………"}    ·    คำนวณราคากลาง เมื่อวันที่ ${committee?.calcDate || "……………………"}`],
+    ["งานก่อสร้าง", project.name || "………………………………………………", "", "", "หน่วย : บาท"],
+    ["สถานที่ก่อสร้าง", project.address || "……………………………", "", "", `จังหวัด ${committee?.province || "……………………"}`],
+    [`หน่วยงานเจ้าของโครงการงานก่อสร้าง ${committee?.agency || "………………………………………………"}`],
+    [
+      `แบบเลขที่ ${committee?.formNo || "……………………"}`,
+      "",
+      "ประมาณราคากลางโดย คณะกรรมการกำหนดราคากลาง",
+      "",
+      `ประมาณราคากลางเมื่อวันที่ ${committee?.calcDate || "……………………"}`,
+    ],
     ...extra.map((x) => [x]),
     [],
   ];
@@ -155,6 +162,30 @@ function signatureRows(committee: Committee | undefined): Row[] {
 
 function footerRows(): Row[] {
   return [[], [REG2569_DISCLAIMER]];
+}
+
+// ชื่อหลักเกณฑ์/ชุดเอกสาร — ปี พ.ศ. อ่านจากชุดกฎที่ pin เท่านั้น (ห้าม hardcode 2569)
+// null = ไม่ทราบปี → ติดป้าย unverified แทนการเดา
+function regTitle(ruleset: Ruleset | null | undefined): { doc: string; law: string } {
+  const yr = rulesetBeYear(ruleset);
+  return yr
+    ? {
+        doc: `ชุดเอกสารเผยแพร่ราคากลาง พ.ศ. ${yr}`,
+        law: `หลักเกณฑ์การคำนวณราคากลางงานก่อสร้าง พ.ศ. ${yr}`,
+      }
+    : {
+        doc: "ชุดเอกสารเผยแพร่ราคากลาง — ไม่ทราบปี พ.ศ. ของชุดกฎ (unverified)",
+        law: "หลักเกณฑ์การคำนวณราคากลางงานก่อสร้าง — ไม่ทราบปี พ.ศ. (unverified)",
+      };
+}
+
+// สถานะหลักฐานของแถวราคา — ใช้ร่วมทั้งงานก่อสร้าง (ชิ้น 9) และครุภัณฑ์จัดซื้อ (ปร.2)
+function evidenceFlags(r: PriceEvidenceRow): string {
+  const flags: string[] = [];
+  if (r.unstated) flags.push("ยังไม่ระบุแหล่งที่มาราคา (unverified)");
+  if (r.stale) flags.push(r.staleDetail || "ราคาเก่ากว่า 12 เดือน (unverified)");
+  if (r.notYetPublished) flags.push("เดือนอ้างอิงยังไม่ปรากฏราคาส่วนกลางในระบบ สนค. ณ วันที่พิมพ์ — unverified");
+  return flags.length > 0 ? flags.join(" · ") : "มีหลักฐานที่มา";
 }
 
 function warningsRows(warnings: string[], header = true): Row[] {
@@ -199,9 +230,9 @@ function buildCoverSheet(
     : "ไม่ระบุที่มา (unverified)";
 
   const aoa: Row[] = [
-    ["ชุดเอกสารเผยแพร่ราคากลาง พ.ศ. 2569"],
+    [regTitle(ruleset).doc],
     // วันบังคับใช้ดึงจากชุดกฎที่ pin — ห้าม hardcode (หลักเกณฑ์ฉบับเดียวกันอาจมีหลายชุดกฎ)
-    [`ตามข้อ 20 หลักเกณฑ์การคำนวณราคากลางงานก่อสร้าง พ.ศ. 2569 (มีผลบังคับ ${effectiveFromThai(ruleset?.effectiveFrom)})`],
+    [`ตามข้อ 20 ${regTitle(ruleset).law} (มีผลบังคับ ${effectiveFromThai(ruleset?.effectiveFrom)})`],
     [],
     ["ชื่อโครงการ", project.name],
     ["สถานที่", project.address || ""],
@@ -285,25 +316,29 @@ function buildP1gSheet(
 
   const aoa: Row[] = [
     ["แบบ ปร.1 (ก) — แบบสรุปค่าก่อสร้าง ค่างานต้นทุน"],
-    ...headRows(project, committee, [`แบบ ปร.1 ที่แนบ จำนวน ${rep.p1Sheets.length} หน้า`]),
+    ...headRows(project, committee, [`แบบ ปร.1 ที่แนบ จำนวน ${rep.p1Sheets.length} แผ่น`]),
     ...condRows,
     [],
     ["ลำดับที่", "งานหรือกลุ่มงาน", "ค่างานต้นทุน (บาท)", "Factor F", "ค่าก่อสร้าง (บาท)", "หมายเหตุ"],
+    [
+      1,
+      "ส่วนที่ 1 ค่างานต้นทุน",
+      money(rep.groups.reduce((a, g) => a + g.costSat, 0)),
+      factorNum(rep.factorFDetail.factor ?? 1),
+      money(rep.constructionTotalSat),
+      "ค่างานต้นทุน × Factor F (คิด Factor F ระดับโครงการ)",
+    ],
+    [],
+    ["รวมค่าก่อสร้าง", "", "", "", money(rep.constructionTotalSat), "บาท"],
+    [`รวมค่าก่อสร้าง ( ${bahtText(rep.constructionTotalSat)} )`],
   ];
-  rep.groups.forEach((g, i) => {
-    aoa.push([i + 1, g.section, money(g.costSat), factorNum(g.factor), money(g.constructionSat), ""]);
-  });
   if (rep.roundingAdjSat !== 0) {
-    aoa.push(["", "ปรับปัดเศษ (ผลรวมรายกลุ่มกับการคำนวณทั้งโครงการ)", "", "", money(rep.roundingAdjSat), "ปัดเศษ half-up ที่ระดับโครงการ"]);
+    aoa.push([
+      `หมายเหตุ: ผลรวมค่าก่อสร้างรายกลุ่มในแบบ ปร.1 (ปัดเศษ half-up ต่อกลุ่ม) ต่างจากยอดทั้งโครงการ ${bahtStr(
+        rep.roundingAdjSat,
+      )} บาท — แบบ ปร.1(ก) นี้ใช้ยอดทั้งโครงการตามเครื่องยนต์คำนวณ`,
+    ]);
   }
-  aoa.push([
-    "",
-    "รวมค่างานต้นทุน / รวมค่าก่อสร้าง",
-    money(rep.groups.reduce((a, g) => a + g.costSat, 0)),
-    "",
-    money(rep.constructionTotalSat),
-    "",
-  ]);
   aoa.push([]);
   aoa.push([
     `ขนาดหรือเนื้อที่อาคาร จำนวน ${area != null && area > 0 ? area.toLocaleString("th-TH", { maximumFractionDigits: 2 }) : "………"} ตารางเมตร เฉลี่ย ${
@@ -311,7 +346,10 @@ function buildP1gSheet(
     } บาทต่อตารางเมตร`,
   ]);
   aoa.push([`หมายเหตุ: แสดงแบบสรุปค่าก่อสร้าง รวม ${bahtStr(rep.constructionTotalSat)} บาทต่อ 1 หน่วย`]);
-  aoa.push(["หมายเหตุ: ชีต 2.ปร.1 รวมทุกหมวดงานเพื่อตรวจใน Excel — พิมพ์แยกแผ่นต่อหมวดงาน (พร้อมหัวแบบ/ช่องลงนาม) ได้ที่หน้าชุดเอกสาร 9 ชิ้นของระบบ"]);
+  aoa.push(["หมายเหตุ: ชีต 2.ปร.1 สรุปรายหมวดงาน + รายละเอียดทุกหมวดงานในชีตเดียว — พิมพ์แยกแผ่นต่อหมวดงาน (พร้อมหัวแบบ/ช่องลงนาม) ได้ที่หน้าชุดเอกสาร 9 ชิ้นของระบบ"]);
+  aoa.push([
+    "หมายเหตุ: แบบฟอร์มนี้ ผู้มีหน้าที่คำนวณราคากลางสามารถปรับปรุง เปลี่ยนแปลง และปรับใช้ได้ตามความเหมาะสม และสอดคล้องกับข้อเท็จจริงของโครงการงานก่อสร้างที่คำนวณราคากลาง",
+  ]);
   aoa.push(...signatureRows(committee));
   aoa.push(...footerRows());
 
@@ -323,12 +361,24 @@ function buildP1gSheet(
   return ws;
 }
 
-// ————— ชีต 2: แบบ ปร.1 — แสดงรายการ ปริมาณงาน และราคา (ทุกหมวดงานในชีตเดียว) —————
+// ————— ชีต 2: แบบ ปร.1 — แสดงรายการ ปริมาณงาน และราคา (สรุปหมวดงาน + ทุกหมวดงานในชีตเดียว) —————
 function buildP1Sheet(XL: XlsxModule, project: BoqProject, rep: Reg2569Report, committee: Committee | undefined): any {
+  // สรุปตามหมวดงาน (ค่าวัสดุ/ค่าแรง/รวม) ก่อนรายละเอียด — เหมือนส่วนสรุปของแบบฟอร์มท้องถิ่น
+  const totalMatSat = rep.groups.reduce((a, g) => a + g.matSat, 0);
+  const totalLabSat = rep.groups.reduce((a, g) => a + g.labSat, 0);
+  const totalCostSat = rep.groups.reduce((a, g) => a + g.costSat, 0);
   const aoa: Row[] = [
     ["แบบ ปร.1 — แบบแสดงรายการ ปริมาณงาน และราคา ค่างานต้นทุน"],
     ...headRows(project, committee),
+    ["สรุป ส่วนที่ 1 ค่างานต้นทุน"],
+    ["ลำดับที่", "รายการ", "จำนวน", "หน่วย", "ค่าวัสดุ (บาท)", "ค่าแรงงาน (บาท)", "รวมค่าวัสดุและค่าแรงงาน (บาท)"],
   ];
+  rep.groups.forEach((g, i) => {
+    aoa.push([i + 1, g.section, "", "รวม", money(g.matSat), money(g.labSat), money(g.costSat)]);
+  });
+  aoa.push(["", "รวมค่างานส่วนที่ 1 ทั้งหมด", "", "", money(totalMatSat), money(totalLabSat), money(totalCostSat)]);
+  aoa.push([]);
+  aoa.push(["รายละเอียดรายการ ปริมาณ และราคาต่อหน่วย"]);
 
   rep.p1Sheets.forEach((sh, si) => {
     aoa.push([`งานหรือกลุ่มงาน: ${sh.section}`]);
@@ -587,34 +637,39 @@ function buildP4Sheet(
   rep: Reg2569Report,
   committee: Committee | undefined,
 ): any {
-  const attach = 1 + (rep.p2 ? 1 : 0) + (rep.p3 ? 1 : 0);
+  // จำนวนแผ่นรวมของชุด (สูตรเดียวกับหน้าพิมพ์ reg2569-client): 5 หน้าหลัก + ปร.1 ต่อหมวด + ปร.2 2 แผ่น + ปร.3 1 แผ่น/รายการเหตุผล
+  // 5 = ปร.1(ก) + ปร.1 สรุป + ปร.4 + รายละเอียด Factor F + แบบสืบราคาวัสดุ
+  const totalPages = 5 + rep.p1Sheets.length + (rep.p2 ? 2 : 0) + (rep.p3 ? 1 + rep.p3.reasons.length : 0);
   const aoa: Row[] = [
-    ["แบบ ปร.4 — แบบสรุปราคากลางงานก่อสร้างอาคาร"],
+    ["แบบ ปร.4 — สรุปราคากลางงานก่อสร้างอาคาร"],
     ...headRows(project, committee, [
-      `แบบ ปร.1 (ก) ปร.2 (ก) และ ปร.3 (ถ้ามี) ที่แนบ จำนวน ${attach} ชุด${rep.p3 ? "" : " (ไม่มี ปร.3 — ไม่มีค่าใช้จ่ายพิเศษ)"}`,
+      `แบบ ปร.1 ปร.1(ก) ปร.2 ปร.2(ก) ปร.3 ปร.4 และตารางคำนวณค่า Factor F ทั้งหมด จำนวน ${totalPages} แผ่น${rep.p3 ? "" : " (ไม่มี ปร.3 — ไม่มีค่าใช้จ่ายพิเศษ)"}`,
     ]),
     ["ลำดับที่", "รายการ", "ค่าก่อสร้าง (บาท)", "หมายเหตุ"],
-    [1, "ค่างานต้นทุน", money(rep.summary.constructionSat), ""],
+    ["", "สรุป", "", ""],
+    [1, "ส่วนที่ 1 ค่าก่อสร้าง", money(rep.summary.constructionSat), "ค่าก่อสร้าง = ค่างานต้นทุน × Factor F"],
+    [
+      2,
+      "ส่วนที่ 2 ค่าครุภัณฑ์จัดซื้อ",
+      rep.p2 ? money(rep.p2.sumSat) : "ไม่มี",
+      rep.p2
+        ? rep.p2.vatPct !== null
+          ? "รวม VAT + ค่าติดตั้งที่สืบราคา"
+          : "รวมค่าติดตั้งที่สืบราคา — VAT ยังไม่ทราบอัตรา (unverified)"
+        : "ไม่มีรายการครุภัณฑ์",
+    ],
+    [3, "ส่วนที่ 3 ค่าใช้จ่ายพิเศษตามข้อกำหนดและค่าใช้จ่ายอื่นที่จำเป็นต้องมี", rep.p3 ? money(rep.p3.sumSat) : "ไม่มี", rep.p3 ? "" : "ไม่มีค่าใช้จ่ายพิเศษ"],
+    [],
+    ["", "รวมค่าก่อสร้างทั้งโครงการ เป็นเงินทั้งสิ้น", money(rep.summary.totalSat), ""],
+    ["", "ราคากลาง เป็นเงินทั้งสิ้น", money(rep.summary.totalSat), "ราคากลาง = ค่าก่อสร้าง + ค่าครุภัณฑ์จัดซื้อ + ค่าใช้จ่ายพิเศษ (ข้อ 10 เล่ม 2)"],
+    ["", "ราคากลาง", "", ""],
+    ["", `( ${bahtText(rep.summary.totalSat)} )`, "", ""],
+    [],
   ];
-  rep.groups.forEach((g) => aoa.push(["", `- ${g.section}`, money(g.constructionSat), ""]));
-  if (rep.roundingAdjSat !== 0) aoa.push(["", "- ปรับปัดเศษ (จากแบบ ปร.1(ก))", money(rep.roundingAdjSat), ""]);
-  aoa.push([
-    2,
-    "ค่าครุภัณฑ์จัดซื้อ",
-    rep.p2 ? money(rep.p2.sumSat) : "ไม่มี",
-    rep.p2
-      ? rep.p2.vatPct !== null
-        ? "รวม VAT + ค่าติดตั้งที่สืบราคา"
-        : "รวมค่าติดตั้งที่สืบราคา — VAT ยังไม่ทราบอัตรา (unverified)"
-      : "ไม่มีรายการครุภัณฑ์",
-  ]);
-  aoa.push([3, "ค่าใช้จ่ายพิเศษตามข้อกำหนด (ถ้ามี)", rep.p3 ? money(rep.p3.sumSat) : "ไม่มี", ""]);
-  aoa.push([], ["", "สรุป", "", ""]);
-  aoa.push(["", "รวมค่าก่อสร้างทั้งโครงการงานก่อสร้าง", money(rep.summary.totalSat), ""]);
-  aoa.push(["", "ราคากลาง", money(rep.summary.totalSat), "ราคากลาง = ค่าก่อสร้าง + ค่าครุภัณฑ์จัดซื้อ + ค่าใช้จ่ายพิเศษ (ข้อ 10 เล่ม 2)"]);
-  aoa.push(["", `ราคากลาง ( ${bahtText(rep.summary.totalSat)} ตัวอักษร )`, "", ""]);
-  aoa.push([]);
   aoa.push(...signatureRows(committee));
+  aoa.push([
+    "หมายเหตุ: แบบฟอร์มนี้ ผู้มีหน้าที่ประมาณราคากลางสามารถปรับปรุง เปลี่ยนแปลง และปรับใช้ได้ตามความเหมาะสม และสอดคล้องกับข้อเท็จจริงของโครงการงานก่อสร้างที่ประมาณราคากลางท้องถิ่น",
+  ]);
   const warn = warningsRows(rep.warnings);
   if (warn.length > 0) aoa.push(...warn);
   aoa.push(...footerRows());
@@ -667,6 +722,27 @@ function buildFactorFSheet(
   }
   aoa.push(["5. Factor F ที่ใช้", fd.factor !== null ? factorNum(fd.factor) : "1.000000 (ยังไม่ปรับ — F = 1)"]);
   moneyRow("ผลการคำนวณ A × F", fd.afterFactor, ["ปัดเศษ half-up เป็นสตางค์"]);
+  if (fd.tableRows.length > 0) {
+    aoa.push([], ["ตารางค่า Factor F (ช่วงค่างานต้นทุน — จากตารางที่เลือกในชุดกฎ)"]);
+    aoa.push([
+      "ลำดับ", "ช่วงค่างานต้นทุน (ล้านบาท)", "Factor F (ขอบล่าง D)", "Factor F (ขอบบน E)",
+      "ไม่รวม VAT (F)", "ไม่รวม VAT (G)", "หมายเหตุ",
+    ]);
+    fd.tableRows.forEach((r, i) => {
+      aoa.push([
+        i + 1,
+        r.open
+          ? `ตั้งแต่ ${r.B.toLocaleString("th-TH")} ขึ้นไป`
+          : `${r.B.toLocaleString("th-TH")}–${r.C.toLocaleString("th-TH")}`,
+        r.D,
+        r.E,
+        r.F ?? "",
+        r.G ?? "",
+        r.used ? "แถวที่ใช้คำนวณ" : "",
+      ]);
+    });
+    aoa.push([`คอลัมน์ที่ใช้จริงในโครงการนี้: ${fd.columnLabel} — ตารางแสดงครบทุกช่วงตามที่บันทึกในชุดกฎ (ไม่คำนวณหรือเดาค่าเพิ่ม)`]);
+  }
   if (fd.notes.length > 0) {
     aoa.push([], ["บันทึกการคำนวณ (trace จากเครื่องยนต์):"]);
     for (const n of fd.notes) aoa.push([`- ${n}`]);
@@ -695,11 +771,16 @@ function buildEvidenceSheet(XL: XlsxModule, project: BoqProject, rep: Reg2569Rep
   ];
 
   for (const r of rep.priceEvidence) {
-    const flags: string[] = [];
-    if (r.unstated) flags.push("ยังไม่ระบุแหล่งที่มาราคา (unverified)");
-    if (r.stale) flags.push(r.staleDetail || "ราคาเก่ากว่า 12 เดือน (unverified)");
-    if (r.notYetPublished) flags.push("เดือนอ้างอิงยังไม่ปรากฏราคาส่วนกลางในระบบ สนค. ณ วันที่พิมพ์ — unverified");
-    aoa.push([r.no, r.name, r.unit, price(r.unitPrice), r.origin, r.reason, flags.length > 0 ? flags.join(" · ") : "มีหลักฐานที่มา"]);
+    aoa.push([r.no, r.name, r.unit, price(r.unitPrice), r.origin, r.reason, evidenceFlags(r)]);
+  }
+
+  // B2 — ราคาครุภัณฑ์จัดซื้อ (ปร.2) ต้องมีหลักฐานที่มา/อายุราคาในชิ้น 9 เช่นเดียวกับวัสดุก่อสร้าง
+  if (rep.equipmentEvidence.length > 0) {
+    aoa.push([], ["ภาค: ราคาครุภัณฑ์จัดซื้อ (ปร.2) — ราคาผู้ผลิต/ผู้จำหน่าย ยังไม่รวม VAT และค่าติดตั้ง"]);
+    aoa.push(["ที่", "รายการ", "หน่วย", "ราคาที่กำหนด/หน่วย (บาท)", "ที่มาและหลักฐานของราคา", "เหตุผลกำกับ", "สถานะ"]);
+    for (const r of rep.equipmentEvidence) {
+      aoa.push([r.no, r.name, r.unit, price(r.unitPrice), r.origin, r.reason, evidenceFlags(r)]);
+    }
   }
 
   if (rep.installEvidence.length > 0) {
@@ -791,8 +872,10 @@ export async function toReg2569WorkbookArray(
 }
 
 // ชื่อไฟล์ดาวน์โหลด — ภาษาไทยได้ แต่ตัดอักขระต้องห้ามของ Windows
-export function reg2569Filename(project: BoqProject, now: Date = new Date()): string {
+// ปี พ.ศ. ในชื่อไฟล์อ่านจากชุดกฎ (null = ไม่ทราบปี — เขียนกำกับ ไม่เดา)
+export function reg2569Filename(project: BoqProject, now: Date = new Date(), ruleset?: Ruleset | null): string {
   const name = project.name.replaceAll(/[\\/:*?"<>|]/g, "-").trim().slice(0, 60) || "BOQ";
   const d = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  return `BOQ-${name}-ชุดเผยแพร่-2569-${d}.xlsx`;
+  const yr = rulesetBeYear(ruleset);
+  return `BOQ-${name}-ชุดเผยแพร่-${yr ?? "ไม่ทราบปี"}-${d}.xlsx`;
 }

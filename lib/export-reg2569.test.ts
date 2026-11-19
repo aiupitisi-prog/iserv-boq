@@ -72,6 +72,7 @@ function goldenProject(): BoqProject {
   return project({
     committee: {
       agency: "หน่วยงานทดสอบ",
+      province: "นครปฐม",
       chairman: "ประธานทดสอบ",
       member1: "กรรมการหนึ่ง",
       member2: "กรรมการสอง",
@@ -172,6 +173,9 @@ describe("export-reg2569 — ชุดเอกสารเผยแพร่ (x
   it("บรรทัดข้อ 20 บนชีต 00 ดึงวันบังคับใช้จากชุดกฎ (ไม่ hardcode) — ไม่มีชุดกฎ = ป้าย unverified", async () => {
     // ชุดกฎทดสอบมี effectiveFrom "2000-01-01" → ต้องขึ้นเป็นวันที่ไทยจากข้อมูล ไม่ใช่วันของหลักเกณฑ์จริง
     expect(allText(wb, REG2569_SHEETS.cover)).toContain("มีผลบังคับ 1 มกราคม 2543");
+    // ปีในชื่อเรื่องต้องมาจากชุดกฎเช่นกัน (ห้าม hardcode 2569)
+    expect(allText(wb, REG2569_SHEETS.cover)).toContain("ชุดเอกสารเผยแพร่ราคากลาง พ.ศ. 2543");
+    expect(allText(wb, REG2569_SHEETS.cover)).not.toContain("ชุดเอกสารเผยแพร่ราคากลาง พ.ศ. 2569");
     // กันการ hardcode กลับมา: วันบังคับใช้จริงของหลักเกณฑ์ต้องไม่ผูกตายในโค้ด
     expect(allText(wb, REG2569_SHEETS.cover)).not.toContain("มีผลบังคับ 9 มิถุนายน 2569)");
 
@@ -197,7 +201,7 @@ describe("export-reg2569 — ชุดเอกสารเผยแพร่ (x
 
   it("เงินในเซลล์เป็น number (บาท 2 ตำแหน่ง) และตรงกับยอดเครื่องยนต์ (สตางค์ ÷ 100)", () => {
     const p4 = rowsOf(wb, REG2569_SHEETS.p4);
-    const row = p4.find((r) => r[1] === "ราคากลาง");
+    const row = p4.find((r) => r[1] === "ราคากลาง เป็นเงินทั้งสิ้น");
     expect(row).toBeTruthy();
     expect(typeof row![2]).toBe("number");
     expect(row![2]).toBe(GOLD_REP.summary.totalSat / 100);
@@ -215,7 +219,7 @@ describe("export-reg2569 — ชุดเอกสารเผยแพร่ (x
 
     // ปร.1(ก): ยอดค่าก่อสร้างรวมเท่ากับ constructionTotalSat
     const p1g = rowsOf(wb, REG2569_SHEETS.p1g);
-    const totalRow = p1g.find((r) => r[1] === "รวมค่างานต้นทุน / รวมค่าก่อสร้าง");
+    const totalRow = p1g.find((r) => r[0] === "รวมค่าก่อสร้าง");
     expect(totalRow![4]).toBe(GOLD_REP.constructionTotalSat / 100);
 
     // ปร.3: ยอดรวมค่าใช้จ่ายพิเศษตรงกับ report
@@ -227,33 +231,59 @@ describe("export-reg2569 — ชุดเอกสารเผยแพร่ (x
   it("ปร.4 มีจำนวนเงินเป็นตัวอักษร (bahtText) และส่วนสรุป 3 ส่วน", () => {
     const p4 = allText(wb, REG2569_SHEETS.p4);
     expect(p4).toContain(bahtText(GOLD_REP.summary.totalSat));
-    expect(p4).toContain("ค่างานต้นทุน");
-    expect(p4).toContain("ค่าครุภัณฑ์จัดซื้อ");
-    expect(p4).toContain("ค่าใช้จ่ายพิเศษตามข้อกำหนด");
+    expect(p4).toContain("ส่วนที่ 1 ค่าก่อสร้าง");
+    expect(p4).toContain("ส่วนที่ 2 ค่าครุภัณฑ์จัดซื้อ");
+    expect(p4).toContain("ส่วนที่ 3 ค่าใช้จ่ายพิเศษตามข้อกำหนดและค่าใช้จ่ายอื่นที่จำเป็นต้องมี");
+    // จำนวนแผ่นรวมตามสูตรเดียวกับหน้าพิมพ์ (ไม่ hardcode จำนวนชีต)
+    const totalPages = 5 + GOLD_REP.p1Sheets.length + (GOLD_REP.p2 ? 2 : 0) + (GOLD_REP.p3 ? 1 + GOLD_REP.p3.reasons.length : 0);
+    expect(p4).toContain(`จำนวน ${totalPages} แผ่น`);
   });
 
-  it("ชีต ปร.1 แยกหมวดงานและมีค่าวัสดุ/ค่าแรง/หมายเหตุ", () => {    const p1 = allText(wb, REG2569_SHEETS.p1);
+  it("ชีต ปร.1 มีสรุปหมวดงาน (ค่าวัสดุ/ค่าแรง/รวม) ก่อนรายละเอียด และมีค่าวัสดุ/ค่าแรง/หมายเหตุ", () => {
+    const p1 = allText(wb, REG2569_SHEETS.p1);
     for (const sh of GOLD_REP.p1Sheets) expect(p1).toContain(sh.section);
+    expect(p1).toContain("สรุป ส่วนที่ 1 ค่างานต้นทุน");
+    expect(p1).toContain("รวมค่างานส่วนที่ 1 ทั้งหมด");
     expect(p1).toContain("ยังไม่แยกค่าวัสดุ/ค่าแรง"); // แถวไม่แยก ก./ข.
+    // ยอดสรุป = ผลรวม matSat/labSat/costSat ของ groups
+    const rows = rowsOf(wb, REG2569_SHEETS.p1);
+    const total = rows.find((r) => r[1] === "รวมค่างานส่วนที่ 1 ทั้งหมด")!;
+    expect(total[4]).toBe(GOLD_REP.groups.reduce((a, g) => a + g.matSat, 0) / 100);
+    expect(total[5]).toBe(GOLD_REP.groups.reduce((a, g) => a + g.labSat, 0) / 100);
+    expect(total[6]).toBe(GOLD_REP.groups.reduce((a, g) => a + g.costSat, 0) / 100);
   });
 
-  it("ชีต 9 มีป้าย unverified ของราคาที่ไม่มีหลักฐาน และภาคผนวกค่าติดตั้งครุภัณฑ์", () => {
+  it("ชีต 9 มีป้าย unverified ของราคาที่ไม่มีหลักฐาน + ภาคราคาครุภัณฑ์ + ภาคผนวกค่าติดตั้งครุภัณฑ์", () => {
     const ev = allText(wb, REG2569_SHEETS.evidence);
     expect(ev).toContain("ยังไม่ระบุแหล่งที่มาราคา (unverified)");
+    expect(ev).toContain("ภาค: ราคาครุภัณฑ์จัดซื้อ (ปร.2)");
+    expect(ev).toContain("ตู้พาเนลหลัก");
     expect(ev).toContain("ภาคผนวก: การสืบราคาค่าติดตั้งครุภัณฑ์");
   });
 
-  it("Factor F: แสดง A, แถวตาราง, คอลัมน์ที่ใช้ และผล A × F", () => {
+  it("Factor F: แสดง A, แถวตาราง, คอลัมน์ที่ใช้ และผล A × F + ตารางทุกช่วง", () => {
     const ff = allText(wb, REG2569_SHEETS.factorF);
     expect(ff).toContain("ค่างานต้นทุนทั้งโครงการ (A)");
     expect(ff).toContain(GOLD_REP.factorFDetail.columnLabel);
     expect(ff).toContain("ผลการคำนวณ A × F");
+    expect(ff).toContain("ตารางค่า Factor F");
+    expect(ff).toContain("แถวที่ใช้คำนวณ"); // highlight แถวที่ lookup ใช้
+    const rows = rowsOf(wb, REG2569_SHEETS.factorF);
+    const tableStart = rows.findIndex((r) => r[0] === "ลำดับ" && String(r[1] ?? "").includes("ช่วงค่างานต้นทุน"));
+    expect(tableStart).toBeGreaterThan(-1);
+    expect(rows.length).toBeGreaterThan(tableStart + GOLD_REP.factorFDetail.tableRows.length);
+  });
+
+  it("หัวแบบฟอร์มแสดงจังหวัดของสถานที่ก่อสร้าง (คนละฟิลด์กับจังหวัดราคา TPSO)", () => {
+    const p1g = rowsOf(wb, REG2569_SHEETS.p1g);
+    const row = p1g.find((r) => r[0] === "สถานที่ก่อสร้าง")!;
+    expect(row[4]).toBe("จังหวัด นครปฐม");
   });
 
   it("ปร.1(ก) มีกล่องเงื่อนไข Factor F 4 อัตรา + จำนวนแบบ ปร.1 ที่แนบ", () => {
     const rows = rowsOf(wb, REG2569_SHEETS.p1g);
     const t = allText(wb, REG2569_SHEETS.p1g);
-    expect(t).toContain(`แบบ ปร.1 ที่แนบ จำนวน ${GOLD_REP.p1Sheets.length} หน้า`);
+    expect(t).toContain(`แบบ ปร.1 ที่แนบ จำนวน ${GOLD_REP.p1Sheets.length} แผ่น`);
     expect(t).toContain("ค่าจ้างล่วงหน้า");
     expect(t).toContain("เงินประกันผลงาน");
     expect(t).toContain("ดอกเบี้ยเงินกู้");
@@ -381,12 +411,15 @@ describe("export-reg2569 — ชุดเอกสารเผยแพร่ (x
     expect(sheetNameSafe("   ")).toBe("Sheet");
   });
 
-  it("ชื่อไฟล์ดาวน์โหลดเป็น .xlsx และมีคำว่า ชุดเผยแพร่", () => {
-    const f = reg2569Filename({ ...GOLD, name: "โครงการทดสอบ/ทดสอบ" }, NOW);
+  it("ชื่อไฟล์ดาวน์โหลดเป็น .xlsx และมีคำว่า ชุดเผยแพร่ + ปี พ.ศ. จากชุดกฎ", () => {
+    const f = reg2569Filename({ ...GOLD, name: "โครงการทดสอบ/ทดสอบ" }, NOW, TEST_RULESET);
     expect(f.startsWith("BOQ-")).toBe(true);
     expect(f).toContain("ชุดเผยแพร่");
+    expect(f).toContain("2543"); // effectiveFrom 2000-01-01 ของชุดกฎทดสอบ
     expect(f).toContain("2026-11-12");
     expect(f.endsWith(".xlsx")).toBe(true);
     expect(f).not.toContain("/");
+    // ไม่ส่งชุดกฎ → ไม่เดาปี
+    expect(reg2569Filename(GOLD, NOW)).toContain("ไม่ทราบปี");
   });
 });

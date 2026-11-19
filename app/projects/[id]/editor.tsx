@@ -367,8 +367,11 @@ export default function BoqEditor({ projectId }: { projectId: string }) {
         <div className="no-print flex flex-wrap gap-2">
           <button onClick={openPicker} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800">เลือกจากคลังราคา</button>
           <button onClick={addItem} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700">เพิ่มรายการ</button>
-          <a href={`/projects/${project.id}/docs`} className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900">
-            {isPrivate ? "ใบเสนอราคา (พิมพ์)" : "เอกสาร 9 ฉบับ (พิมพ์)"}
+          <a
+            href={isPrivate ? `/projects/${project.id}/docs` : `/projects/${project.id}/docs/reg2569`}
+            className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900"
+          >
+            {isPrivate ? "ใบเสนอราคา (พิมพ์)" : "ชุด 9 ชิ้นตามระเบียบ (พิมพ์)"}
           </a>
           <button onClick={exportXlsx} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">ส่งออก Excel</button>
           <button onClick={exportCsv} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">ส่งออก CSV</button>

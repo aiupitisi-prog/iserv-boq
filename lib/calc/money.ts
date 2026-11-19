@@ -22,6 +22,17 @@ export function sumSatang(list: Satang[]): Satang {
   return list.reduce((a, b) => a + b, 0);
 }
 
+// แจกสัดส่วน half-up: part × num ÷ denom (ค่าล้วนไม่เป็นลบ) — ใช้ BigInt กัน precision
+// ปัด 0.5 ขึ้น: floor((2·part·num + denom) / (2·denom))
+// ใช้ทั้งการปรับลดราคารายการและฐานราคากลางรายการของชุด 9 ชิ้น (ห้ามเขียนสูตรซ้ำ)
+export function proportionSat(part: Satang, num: Satang, denom: Satang): Satang {
+  if (denom <= 0 || part <= 0 || num <= 0) return 0;
+  const m = BigInt(part) * BigInt(num);
+  const d = BigInt(denom);
+  const two = BigInt(2);
+  return Number((two * m + d) / (two * d));
+}
+
 // % ของจำนวนเงิน — ปัดเศษ half-up (ผู้เรียกต้องบันทึกการปัดเศษนี้ใน trace)
 export function pctOf(s: Satang, pct: number): Satang {
   if (!isFinite(pct) || pct <= 0) return 0;

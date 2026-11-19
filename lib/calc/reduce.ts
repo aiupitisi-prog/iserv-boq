@@ -13,7 +13,7 @@
 
 import type { BoqProject } from "../boq";
 import type { CalcResult } from "./compute";
-import { formatSatang, mulQty, toSatang, type Satang } from "./money";
+import { formatSatang, mulQty, proportionSat, toSatang, type Satang } from "./money";
 
 export type ReducedPriceLine = {
   itemId: string;
@@ -42,58 +42,94 @@ export type PriceReductionResult = {
   diffSat: Satang; // (3) = (1) − (2)
   reducePct: number | null; // % ปรับลด = (3)/(1) — ตัวเลขแสดงผลเท่านั้น
   reducibleTotalFromEngineSat: Satang; // afterFactor + equipmentAmount (ยอดเครื่องยนต์ ไว้เทียบยอด)
+  baseSource: "reg2569" | "engine"; // ที่มาของฐานราคากลางรายการ (reg2569 = ปร.4, engine = เครื่องยนต์เดิม)
   warnings: string[];
 };
 
-// แจกสัดส่วน half-up: part × num ÷ denom (ค่าล้วนไม่เป็นลบ) — ใช้ BigInt กัน precision
-// ปัด 0.5 ขึ้น: floor((2·part·num + denom) / (2·denom))
-function proportionSat(part: Satang, num: Satang, denom: Satang): Satang {
-  if (denom <= 0 || part <= 0 || num <= 0) return 0;
-  const m = BigInt(part) * BigInt(num);
-  const d = BigInt(denom);
-  const two = BigInt(2);
-  return Number((two * m + d) / (two * d));
-}
+// ฐานราคากลางส่วนรายการจากชุด 9 ชิ้น (Reg2569Report.contractBase) — ผู้เรียกต้องส่งมาเสมอ
+// เพื่อให้ผลรวมของสัญญาตรงกับ ปร.4 (รวม VAT/ค่าติดตั้งครุภัณฑ์) ไม่ใช่ยอดเครื่องยนต์เดิม
+export type PriceReductionBase = {
+  lines: { itemId: string; baseSat: Satang }[];
+  totalSat: Satang;
+};
 
 export function computePriceReduction(
   project: BoqProject,
   calc: CalcResult,
   winningPrice: number,
+  base?: PriceReductionBase,
 ): PriceReductionResult {
   const warnings: string[] = [];
 
   // ราคากลางรายการ — construction ปรับสัดส่วนจาก F ระดับโครงการ (afterFactor/directCost)
   // ครุภัณฑ์ใช้ราคาตัวเองตรง ๆ (กฎเหล็กแยกฐาน Factor F)
   const afterFactor = calc.afterFactor ?? calc.directCost;
+  const reducibleTotalFromEngine = afterFactor + (calc.equipmentAmount ?? 0);
+
+  // B1 — ฐานจากชุด 9 ชิ้น (ปร.4) ต้องครบทุก item และ Σ รายการ = totalSat ก่อนใช้
+  let baseError: string | null = null;
+  const baseMap = new Map<string, Satang>();
+  if (base) {
+    for (const l of base.lines) {
+      if (baseMap.has(l.itemId)) {
+        baseError = `ฐานราคากลางมีรายการซ้ำ (itemId ${l.itemId}) — ห้ามใช้เอกสารจนกว่าจะแก้`;
+      }
+      baseMap.set(l.itemId, l.baseSat);
+    }
+    const missing = project.items.filter((it) => !baseMap.has(it.id));
+    if (missing.length > 0) {
+      baseError = `ฐานราคากลางจากชุด 9 ชิ้นไม่ครบทุกบรรทัด BOQ (ขาด ${missing.length} รายการ) — คำนวณชุด 9 ชิ้นใหม่ก่อนจัดทำแนบท้ายสัญญา`;
+    }
+    if (base.lines.length !== project.items.length && !baseError) {
+      baseError = `ฐานราคากลางมี ${base.lines.length} บรรทัด แต่ BOQ มี ${project.items.length} รายการ — ห้ามใช้เอกสารจนกว่าจะตรงกัน`;
+    }
+    const baseSum = base.lines.reduce((a, l) => a + l.baseSat, 0);
+    if (baseSum !== base.totalSat && !baseError) {
+      baseError = `ผลรวมฐานราคากลางรายการ (${formatSatang(baseSum)} บาท) ไม่เท่ากับยอดรวมที่แจ้ง (${formatSatang(
+        base.totalSat,
+      )} บาท) — ห้ามใช้เอกสารจนกว่าจะแก้`;
+    }
+  }
+
   const medians = new Map<string, Satang>();
   let reducibleBase: Satang = 0;
-  for (const it of project.items) {
-    const base = mulQty(it.qty, it.price);
-    const median = it.part === "equipment" ? base : proportionSat(base, afterFactor, calc.directCost);
-    medians.set(it.id, median);
-    reducibleBase += median;
+  if (base) {
+    for (const it of project.items) {
+      const b = baseMap.get(it.id) ?? 0;
+      medians.set(it.id, b);
+      reducibleBase += b;
+    }
+  } else {
+    for (const it of project.items) {
+      const b = mulQty(it.qty, it.price);
+      const median = it.part === "equipment" ? b : proportionSat(b, afterFactor, calc.directCost);
+      medians.set(it.id, median);
+      reducibleBase += median;
+    }
   }
 
   // ส่วนคงเดิม — บรรทัดสรุประดับโครงการจากชุดกฎ ไม่ใช่รายการตาราง BOQ
+  // ใช้เฉพาะโหมด engine: ฐานจาก ปร.4 รวมทุกองค์ประกอบในรายการแล้ว (ไม่มีส่วนนอก BOQ ที่ต้องหักก่อน)
   const fixedLines: { label: string; satang: Satang }[] = [];
-  if (calc.contingency) {
-    fixedLines.push({ label: "เงินเผื่อจำเป็น (ส่วน ค. — คงเดิมตามชุดกฎ)", satang: calc.contingency });
-  }
-  if (calc.swc) {
-    fixedLines.push({ label: "ค่าดำเนินงาน S.W.C. (ส่วน ง. — คงเดิมตามชุดกฎ)", satang: calc.swc });
-  }
-  if (calc.installAmount) {
-    fixedLines.push({ label: "ค่าดำเนินงานครุภัณฑ์ — คงเดิมตามชุดกฎ", satang: calc.installAmount });
+  if (!base) {
+    if (calc.contingency) {
+      fixedLines.push({ label: "เงินเผื่อจำเป็น (ส่วน ค. — คงเดิมตามชุดกฎ)", satang: calc.contingency });
+    }
+    if (calc.swc) {
+      fixedLines.push({ label: "ค่าดำเนินงาน S.W.C. (ส่วน ง. — คงเดิมตามชุดกฎ)", satang: calc.swc });
+    }
+    if (calc.installAmount) {
+      fixedLines.push({ label: "ค่าดำเนินงานครุภัณฑ์ — คงเดิมตามชุดกฎ", satang: calc.installAmount });
+    }
   }
   const fixedTotal = fixedLines.reduce((a, b) => a + b.satang, 0);
-  const reducibleTotalFromEngine = afterFactor + (calc.equipmentAmount ?? 0);
 
   if (calc.factorF === null) {
     warnings.push(
       "ราคากลางยังไม่ผ่านตาราง Factor F (ชุดกฎที่ pin ไม่มีตาราง) — ราคากลางรายการใช้ต้นทุนโดยตรงชั่วคราว; ควรนำเข้าตารางจากเอกสารทางการก่อนใช้จริง",
     );
   }
-  if (reducibleBase !== reducibleTotalFromEngine) {
+  if (!base && reducibleBase !== reducibleTotalFromEngine) {
     warnings.push(
       `ผลรวมราคากลางรายการที่ปัดเศษรายการ (${formatSatang(reducibleBase)} บาท) ต่างจากยอดรวมของเครื่องยนต์ (${formatSatang(
         reducibleTotalFromEngine,
@@ -119,11 +155,21 @@ export function computePriceReduction(
     diffSat: Math.max(reducibleBase - Math.max(winItems, 0), 0),
     reducePct: null,
     reducibleTotalFromEngineSat: reducibleTotalFromEngine,
+    baseSource: base ? "reg2569" : "engine",
     warnings,
   });
 
+  if (baseError) return err(baseError);
   if (!winningSat) {
     return err("ยังไม่ได้กรอกราคาตามคำเสนอของผู้ได้รับคัดเลือก หรือจำนวนเงินไม่ถูกต้อง");
+  }
+  // ค่าใช้จ่ายพิเศษ (ปร.3) เป็นรายการนอก BOQ ที่ยังไม่มีแนวทางปรับลด/คงเดิมที่ยืนยันได้ —
+  // ห้ามเดา: บล็อกเอกสารจนกว่าจะกำหนดแนวทาง (ผลรวมสัญญาจะผิดถ้ากระจายส่วนนี้ลงรายการ BOQ)
+  const specialExpenses = (project.specialExpenses ?? []).filter((e) => e.amount !== 0);
+  if (specialExpenses.length > 0) {
+    return err(
+      `โครงการมีค่าใช้จ่ายพิเศษตามข้อกำหนด (ปร.3) ${specialExpenses.length} รายการ — ยังไม่รองรับการนำเข้าแนบท้ายสัญญา/การปรับลด; ต้องกำหนดแนวทางคงเดิมหรือปรับลดที่ยืนยันได้ก่อนจัดทำเอกสาร`,
+    );
   }
   if (winItems < 0) {
     return err(
@@ -183,9 +229,11 @@ export function computePriceReduction(
   warnings.push(
     "อัลกอริทึมการปรับลดราคา (อัตราร้อยละเดียวกันทุกรายการ BOQ หักส่วนคงเดิมก่อน เศษปัดเศษเหวี่ยงรายการเงินมากที่สุด) อ้างอิงพฤติกรรมจากตัวอย่างระบบปรับลดราคา (ว 651) ที่ผู้ใช้แนบ — unverified: ตรวจกับแนวทางการจัดทำ/แก้ไขแบบแสดงรายการ ปริมาณงาน และราคา ที่มีผลบังคับก่อนใช้จริง",
   );
-  warnings.push(
-    "การกำหนดส่วนคงเดิม (เงินเผื่อจำเป็น/ค่าดำเนินงาน/ค่าดำเนินงานครุภัณฑ์ไม่เข้าการปรับลดรายการ) — unverified: แนวทางที่มีผลบังคับอาจกำหนดให้ปรับลดส่วนเหล่านี้ด้วยแล้วแต่เงื่อนไข",
-  );
+  if (!base) {
+    warnings.push(
+      "การกำหนดส่วนคงเดิม (เงินเผื่อจำเป็น/ค่าดำเนินงาน/ค่าดำเนินงานครุภัณฑ์ไม่เข้าการปรับลดรายการ) — unverified: แนวทางที่มีผลบังคับอาจกำหนดให้ปรับลดส่วนเหล่านี้ด้วยแล้วแต่เงื่อนไข",
+    );
+  }
   warnings.push(
     "ตัวอย่างที่แนบมีสวิตช์ 3 จังหวัดชายแดนภาคใต้ คูณ 1.05 ที่ราคากลางรายการ — ระบบยังไม่ใส่ตัวคูณนี้ เพราะพิสูจน์ตัวเลขจากเอกสารที่มีผลบังคับยังไม่ได้ (ถ้ามีหลักเกณฑ์จริง ให้เพิ่มเป็นอัตราในชุดกฎราคาก่อนใช้)",
   );
@@ -219,6 +267,7 @@ export function computePriceReduction(
     diffSat: diff,
     reducePct: (diff / reducibleBase) * 100,
     reducibleTotalFromEngineSat: reducibleTotalFromEngine,
+    baseSource: base ? "reg2569" : "engine",
     warnings,
   };
 }

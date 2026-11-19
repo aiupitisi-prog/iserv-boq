@@ -12,7 +12,7 @@
 import { useEffect, useState } from "react";
 import type { BoqItem, BoqProject, Committee, SpecialExpense } from "@/lib/boq";
 import { loadProjects, saveProject } from "@/lib/storage";
-import { loadRulesets, rulesetStatus, Ruleset } from "@/lib/ruleset";
+import { loadRulesets, rulesetBeYear, rulesetStatus, Ruleset } from "@/lib/ruleset";
 import { computeGovBOQSafe } from "@/lib/calc/compute";
 import { buildReg2569Report, type Reg2569Report } from "@/lib/report2569";
 import { formatSatang, satangToBaht } from "@/lib/calc/money";
@@ -34,7 +34,8 @@ const tdr = "border border-slate-300 px-2 py-1 text-right align-top";
 const inputCls = "mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm";
 const lbl = "text-xs text-slate-700";
 
-// — หัวแบบฟอร์มราชการ (ตามต้นฉบับ: งานหรือกลุ่มงาน / ชื่อโครงการ / สถานที่ / แบบเลขที่ / หน่วยงาน / วันที่คำนวณ) —
+// — หัวแบบฟอร์มราชการ (ตามตัวอย่างแบบฟอร์มท้องถิ่น: งานก่อสร้าง / สถานที่ + จังหวัด / หน่วยงาน /
+//   แบบเลขที่ / ประมาณราคากลางโดยคณะกรรมการ / วันที่คำนวณ / หน่วย: บาท) —
 function FormHead({
   project,
   committee,
@@ -51,17 +52,21 @@ function FormHead({
       {groupLabel !== undefined && (
         <p><b>งานหรือกลุ่มงาน</b> {groupLabel || "……………………………………"}</p>
       )}
-      <p><b>ชื่อโครงการงานก่อสร้าง</b> {project.name || "……………………………………"}</p>
       <div className="flex flex-wrap justify-between gap-x-6">
-        <span><b>สถานที่ก่อสร้าง</b> {project.address || "………………………"}</span>
-        <span><b>แบบเลขที่</b> {committee?.formNo || "……………"}</span>
-      </div>
-      <p><b>หน่วยงานเจ้าของโครงการงานก่อสร้าง</b> {committee?.agency || "……………………………………"}</p>
-      {extra}
-      <div className="flex flex-wrap justify-between gap-x-6">
-        <span><b>คำนวณราคากลาง เมื่อวันที่</b> {committee?.calcDate || "……………"}</span>
+        <span><b>งานก่อสร้าง</b> {project.name || "……………………………………"}</span>
         <span>หน่วย : บาท</span>
       </div>
+      <div className="flex flex-wrap justify-between gap-x-6">
+        <span><b>สถานที่ก่อสร้าง</b> {project.address || "………………………"}</span>
+        <span><b>จังหวัด</b> {committee?.province || "……………"}</span>
+      </div>
+      <p><b>หน่วยงานเจ้าของโครงการงานก่อสร้าง</b> {committee?.agency || "……………………………………"}</p>
+      <div className="flex flex-wrap justify-between gap-x-6">
+        <span><b>แบบเลขที่</b> {committee?.formNo || "……………"}</span>
+        <span><b>ประมาณราคากลางโดย</b> คณะกรรมการกำหนดราคากลาง</span>
+        <span><b>ประมาณราคากลางเมื่อวันที่</b> {committee?.calcDate || "……………"}</span>
+      </div>
+      {extra}
     </div>
   );
 }
@@ -205,6 +210,7 @@ export default function Reg2569Client({ projectId }: { projectId: string }) {
   const { calc, err: calcErr } = computeGovBOQSafe(project, pinnedRs);
   const rep = calc ? buildReg2569Report(project, pinnedRs, calc) : null;
   const superseded = rulesetStatus(pinnedRs ?? undefined) === "superseded"; // B4 — ชุดกฎที่ pin ถูกแทนที่แล้ว
+  const regYear = rulesetBeYear(pinnedRs); // ปี พ.ศ. ของชุดกฎที่ pin (null = ไม่ทราบ — ห้ามเดา)
 
   if (!rep) {
     return (
@@ -220,6 +226,8 @@ export default function Reg2569Client({ projectId }: { projectId: string }) {
   const area = project.buildingAreaSqm;
   const avgPerSqm = area && area > 0 ? thb(rep.constructionTotalSat) / area : null;
   const p1Pages = rep.p1Sheets.length;
+  // จำนวนแผ่นรวมของชุด (ใช้ในหัวแบบ ปร.4 แบบ "แบบ … ทั้งหมด จำนวน … แผ่น")
+  const totalPages = 5 + p1Pages + (rep.p2 ? 2 : 0) + (rep.p3 ? 1 + rep.p3.reasons.length : 0);
   const today = thDate(new Date());
 
   // ชุดเผยแพร่ตามข้อ 20 — xlsx หลายชีต (เกิดเฉพาะชีตที่มีข้อมูลจริง)
@@ -229,7 +237,7 @@ export default function Reg2569Client({ projectId }: { projectId: string }) {
     setExportErr(null);
     try {
       const data = await toReg2569WorkbookArray(project, pinnedRs, rep);
-      downloadBlob(data, EXPORT_MIME.xlsx, reg2569Filename(project));
+      downloadBlob(data, EXPORT_MIME.xlsx, reg2569Filename(project, new Date(), pinnedRs));
     } catch (e) {
       setExportErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -237,14 +245,17 @@ export default function Reg2569Client({ projectId }: { projectId: string }) {
     }
   };
 
-  const SHEETS = buildSheets({ project, committee, rep, area, avgPerSqm, p1Pages });
+  const SHEETS = buildSheets({ project, committee, rep, area, avgPerSqm, p1Pages, totalPages });
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
       {/* ————— แถบเครื่องมือ ————— */}
       <div className="no-print mb-4 flex flex-wrap items-center gap-2">
         <a href={`/projects/${projectId}`} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">← กลับ editor</a>
-        <a href={`/projects/${projectId}/docs`} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">ชุดเอกสารโครงเดิม (10 ฉบับ)</a>
+        <a href={`/projects/${projectId}/docs`} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">ชุดเอกสารโครงเดิม</a>
+        <a href={`/projects/${projectId}/docs/contract`} className="rounded-lg border border-emerald-500 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100">
+          แนบท้ายสัญญา (เจ้าหน้าที่พัสดุ) →
+        </a>
         <button onClick={() => window.print()} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800">พิมพ์ทั้งชุด (9 ชิ้น)</button>
         <button
           onClick={exportPublish}
@@ -253,7 +264,7 @@ export default function Reg2569Client({ projectId }: { projectId: string }) {
         >
           {exporting ? "กำลังสร้างไฟล์…" : "ดาวน์โหลดชุดเผยแพร่ (xlsx)"}
         </button>
-        <span className="text-xs text-slate-500">รายงานการคำนวณราคากลางงานก่อสร้างอาคาร ตามข้อ 11 เล่ม 2 · หลักเกณฑ์ พ.ศ. 2569 · ชุดเผยแพร่ตามข้อ 20</span>
+        <span className="text-xs text-slate-500">รายงานการคำนวณราคากลางงานก่อสร้างอาคาร ตามข้อ 11 เล่ม 2 · {regYear ? `หลักเกณฑ์ พ.ศ. ${regYear}` : "ไม่ทราบปี พ.ศ. ของชุดกฎ (unverified)"} · ชุดเผยแพร่ตามข้อ 20</span>
       </div>
       {exportErr && (
         <div className="no-print mb-4 rounded border border-red-300 bg-red-50 p-3 text-xs text-red-900">
@@ -292,7 +303,7 @@ export default function Reg2569Client({ projectId }: { projectId: string }) {
       ))}
 
       {/* ————— หัว-ท้ายกระดาษซ้ำทุกหน้าตอนพิมพ์ ————— */}
-      <div className="print-header">{project.name} · รายงานราคากลาง 9 ชิ้น (ระเบียบ 2569)</div>
+      <div className="print-header">{project.name} · รายงานราคากลาง 9 ชิ้น{regYear ? ` (ระเบียบ พ.ศ. ${regYear})` : ""}</div>
       <div className="print-footer">
         จัดทำด้วยระบบ iserv BOQ — ไม่ใช่ราคามาตรฐานของกรมบัญชีกลาง · พิมพ์ {today}
       </div>
@@ -308,6 +319,7 @@ function buildSheets({
   area,
   avgPerSqm,
   p1Pages,
+  totalPages,
 }: {
   project: BoqProject;
   committee?: Committee;
@@ -315,6 +327,7 @@ function buildSheets({
   area?: number;
   avgPerSqm: number | null;
   p1Pages: number;
+  totalPages: number;
 }): { id: string; title: string; body: React.ReactNode }[] {
   const sheets: { id: string; title: string; body: React.ReactNode }[] = [];
 
@@ -331,51 +344,44 @@ function buildSheets({
         <FormHead
           project={project}
           committee={committee}
-          extra={<p><b>แบบ ปร.1 ที่แนบ</b> จำนวน {p1Pages} หน้า</p>}
+          extra={<p><b>แบบ ปร.1 ที่แนบ</b> จำนวน {p1Pages} แผ่น</p>}
         />
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-slate-100 text-left">
-              <th className={td}>ลำดับที่</th>
+              <th className={`${td} w-14`}>ลำดับที่</th>
               <th className={td}>รายการ</th>
-              <th className={`${tdr} w-28`}>ค่างานต้นทุน</th>
+              <th className={`${tdr} w-32`}>ค่างานต้นทุน</th>
               <th className={`${tdr} w-24`}>Factor F</th>
-              <th className={`${tdr} w-28`}>ค่าก่อสร้าง</th>
+              <th className={`${tdr} w-32`}>ค่าก่อสร้าง</th>
               <th className={td}>หมายเหตุ</th>
             </tr>
           </thead>
           <tbody>
-            {rep.groups.map((g, i) => (
-              <tr key={g.section + i}>
-                <td className={td}>{i + 1}.</td>
-                <td className={td}>{g.section}</td>
-                <td className={tdr}>{fmt(g.costSat)}</td>
-                <td className={tdr}>{g.factor.toFixed(6)}</td>
-                <td className={tdr}>{fmt(g.constructionSat)}</td>
-                <td className={td}></td>
-              </tr>
-            ))}
-            {rep.roundingAdjSat !== 0 && (
-              <tr>
-                <td className={td}></td>
-                <td className={td}>ปรับปัดเศษ (ผลรวมรายกลุ่มกับการคำนวณทั้งโครงการ)</td>
-                <td className={tdr}></td>
-                <td className={tdr}></td>
-                <td className={tdr}>{fmt(rep.roundingAdjSat)}</td>
-                <td className={td}>ปัดเศษ half-up — ยอดทั้งโครงการ (ปร.4) ใช้ยอดรวมค่าก่อสร้างสุดท้ายข้างล่าง</td>
-              </tr>
-            )}
-            <tr className="font-semibold">
-              <td className={td}></td>
-              <td className={td}>รวมค่างานต้นทุน / รวมค่าก่อสร้าง</td>
+            <tr>
+              <td className={td}>1</td>
+              <td className={td}><b>ส่วนที่ 1 ค่างานต้นทุน</b></td>
               <td className={tdr}>{fmt(rep.groups.reduce((a, g) => a + g.costSat, 0))}</td>
-              <td className={tdr}></td>
-              <td className={tdr}>{fmt(rep.constructionTotalSat)}</td>
-              <td className={td}></td>
+              <td className={tdr}>{(rep.factorFDetail.factor ?? 1).toFixed(6)}</td>
+              <td className={tdr}><b>{fmt(rep.constructionTotalSat)}</b></td>
+              <td className={td}>ค่างานต้นทุน × Factor F (คิด Factor F ระดับโครงการ)</td>
             </tr>
           </tbody>
         </table>
         <FactorFCondBox info={rep.factorFDetail} />
+        <div className="mt-3 flex flex-wrap justify-between gap-x-8 border-t border-slate-400 pt-1 text-sm">
+          <span><b>รวมค่าก่อสร้าง</b></span>
+          <span className="font-semibold">{fmt(rep.constructionTotalSat)} บาท</span>
+        </div>
+        <p className="mt-1 text-sm">
+          รวมค่าก่อสร้าง ( <span className="italic">{bahtText(rep.constructionTotalSat)}</span> )
+        </p>
+        {rep.roundingAdjSat !== 0 && (
+          <FormNote>
+            หมายเหตุ: ผลรวมค่าก่อสร้างรายกลุ่มในแบบ ปร.1 (ปัดเศษ half-up ต่อกลุ่ม) ต่างจากยอดทั้งโครงการ{" "}
+            {fmt(rep.roundingAdjSat)} บาท — แบบ ปร.1(ก) นี้ใช้ยอดทั้งโครงการตามเครื่องยนต์คำนวณ
+          </FormNote>
+        )}
         <p className="mt-2 text-sm">
           ขนาดหรือเนื้อที่อาคาร จำนวน {area != null && area > 0 ? fmtQty(area) : "………"} ตารางเมตร เฉลี่ย {avgPerSqm !== null ? fmtBaht(avgPerSqm) : "………"} บาทต่อตารางเมตร
         </p>
@@ -385,6 +391,64 @@ function buildSheets({
           หมายเหตุ: แบบฟอร์มนี้ ผู้มีหน้าที่คำนวณราคากลางสามารถปรับปรุง เปลี่ยนแปลง และปรับใช้ได้ตามความเหมาะสม
           และสอดคล้องกับข้อเท็จจริงของโครงการงานก่อสร้างที่คำนวณราคากลาง
         </FormNote>
+      </>
+    ),
+  });
+
+  // ——— ชิ้น 2 (สรุป): แบบ ปร.1 — สรุปค่างานต้นทุนตามหมวดงาน (แบบเดียวกับส่วนสรุปของแบบฟอร์มท้องถิ่น) ———
+  const totalMatSat = rep.groups.reduce((a, g) => a + g.matSat, 0);
+  const totalLabSat = rep.groups.reduce((a, g) => a + g.labSat, 0);
+  const totalCostSat = rep.groups.reduce((a, g) => a + g.costSat, 0);
+  sheets.push({
+    id: "p1-summary",
+    title: "แบบ ปร.1 — แบบสรุปรายการ ปริมาณงานและราคา ค่างานต้นทุน (สรุปตามหมวดงาน)",
+    body: (
+      <>
+        <div className="text-center">
+          <h2 className="text-lg font-bold text-slate-900">แบบ ปร.1 แผ่นที่ ……/……</h2>
+          <h3 className="font-bold text-slate-900">แบบสรุปรายการ ปริมาณงานและราคา ค่างานต้นทุน</h3>
+        </div>
+        <FormHead project={project} committee={committee} />
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-slate-100 text-left">
+              <th className={`${td} w-12`}>ลำดับที่</th>
+              <th className={td}>รายการ</th>
+              <th className={`${tdr} w-16`}>จำนวน</th>
+              <th className={`${td} w-16`}>หน่วย</th>
+              <th className={`${tdr} w-28`}>ค่าวัสดุ (จำนวนเงิน)</th>
+              <th className={`${tdr} w-28`}>ค่าแรงงาน (จำนวนเงิน)</th>
+              <th className={`${tdr} w-32`}>รวมค่าวัสดุและค่าแรงงาน</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rep.groups.map((g, i) => (
+              <tr key={g.section + i}>
+                <td className={td}>{i + 1}</td>
+                <td className={td}>{g.section}</td>
+                <td className={tdr}></td>
+                <td className={td}>รวม</td>
+                <td className={tdr}>{fmt(g.matSat)}</td>
+                <td className={tdr}>{fmt(g.labSat)}</td>
+                <td className={tdr}>{fmt(g.costSat)}</td>
+              </tr>
+            ))}
+            <tr className="font-semibold">
+              <td className={td}></td>
+              <td className={td}>รวมค่างานส่วนที่ 1 ทั้งหมด</td>
+              <td className={td}></td>
+              <td className={td}></td>
+              <td className={tdr}>{fmt(totalMatSat)}</td>
+              <td className={tdr}>{fmt(totalLabSat)}</td>
+              <td className={tdr}>{fmt(totalCostSat)}</td>
+            </tr>
+          </tbody>
+        </table>
+        <FormNote>
+          สรุปตามหมวดงานตามลำดับรายการใน BOQ — รายละเอียดรายการ ปริมาณ และราคาต่อหน่วยอยู่ในแผ่น ปร.1 ถัดไป
+          {rep.p1Sheets.length > 0 ? ` (${rep.p1Sheets.length} แผ่น)` : ""}
+        </FormNote>
+        <PreparedSig />
       </>
     ),
   });
@@ -735,7 +799,7 @@ function buildSheets({
           committee={committee}
           extra={
             <p>
-              <b>แบบ ปร.1 (ก) ปร.2 (ก) และ ปร.3 (ถ้ามี) ที่แนบ</b> จำนวน {1 + (rep.p2 ? 1 : 0) + (rep.p3 ? 1 : 0)} ชุด
+              <b>แบบ ปร.1 ปร.1(ก) ปร.2 ปร.2(ก) ปร.3 ปร.4 และตารางคำนวณค่า Factor F ทั้งหมด</b> จำนวน {totalPages} แผ่น
               {rep.p3 ? "" : " (ไม่มี ปร.3 — ไม่มีค่าใช้จ่ายพิเศษ)"}
             </p>
           }
@@ -752,37 +816,21 @@ function buildSheets({
           <tbody>
             <tr>
               <td className={td}>1</td>
-              <td className={td}><b>ค่างานต้นทุน</b></td>
+              <td className={td}><b>ส่วนที่ 1 ค่าก่อสร้าง</b></td>
               <td className={tdr}>{fmt(rep.summary.constructionSat)}</td>
-              <td className={td}></td>
+              <td className={td}>ค่าก่อสร้าง = ค่างานต้นทุน × Factor F</td>
             </tr>
-            {rep.groups.map((g, i) => (
-              <tr key={g.section + i}>
-                <td className={td}></td>
-                <td className={td}>- {g.section}</td>
-                <td className={tdr}>{fmt(g.constructionSat)}</td>
-                <td className={td}></td>
-              </tr>
-            ))}
-            {rep.roundingAdjSat !== 0 && (
-              <tr>
-                <td className={td}></td>
-                <td className={td}>- ปรับปัดเศษ (จากแบบ ปร.1(ก))</td>
-                <td className={tdr}>{fmt(rep.roundingAdjSat)}</td>
-                <td className={td}></td>
-              </tr>
-            )}
             <tr>
               <td className={td}>2</td>
-              <td className={td}><b>ค่าครุภัณฑ์จัดซื้อ</b></td>
+              <td className={td}><b>ส่วนที่ 2 ค่าครุภัณฑ์จัดซื้อ</b></td>
               <td className={tdr}>{rep.p2 ? fmt(rep.p2.sumSat) : "ไม่มี"}</td>
               <td className={td}>{rep.p2 ? (rep.p2.vatPct !== null ? "รวม VAT + ค่าติดตั้งที่สืบราคา" : "รวมค่าติดตั้งที่สืบราคา — VAT ยังไม่ทราบอัตรา (unverified)") : "ไม่มีรายการครุภัณฑ์"}</td>
             </tr>
             <tr>
               <td className={td}>3</td>
-              <td className={td}><b>ค่าใช้จ่ายพิเศษตามข้อกำหนด (ถ้ามี)</b></td>
+              <td className={td}><b>ส่วนที่ 3 ค่าใช้จ่ายพิเศษตามข้อกำหนดและค่าใช้จ่ายอื่นที่จำเป็นต้องมี</b></td>
               <td className={tdr}>{rep.p3 ? fmt(rep.p3.sumSat) : "ไม่มี"}</td>
-              <td className={td}></td>
+              <td className={td}>{rep.p3 ? "" : "ไม่มีค่าใช้จ่ายพิเศษ"}</td>
             </tr>
             <tr>
               <td className={td} colSpan={4}></td>
@@ -795,19 +843,21 @@ function buildSheets({
             </tr>
             <tr>
               <td className={td}></td>
-              <td className={td}>รวมค่าก่อสร้างทั้งโครงการงานก่อสร้าง</td>
+              <td className={td}>รวมค่าก่อสร้างทั้งโครงการ เป็นเงินทั้งสิ้น</td>
               <td className={tdr}>{fmt(rep.summary.totalSat)}</td>
               <td className={td}></td>
             </tr>
             <tr>
               <td className={td}></td>
-              <td className={td}><b>ราคากลาง</b></td>
-              <td className={tdr}>{fmt(rep.summary.totalSat)}</td>
+              <td className={td}><b>ราคากลาง เป็นเงินทั้งสิ้น</b></td>
+              <td className={tdr}><b>{fmt(rep.summary.totalSat)}</b></td>
               <td className={td}>ราคากลาง = ค่าก่อสร้าง + ค่าครุภัณฑ์จัดซื้อ + ค่าใช้จ่ายพิเศษ (ข้อ 10 เล่ม 2)</td>
             </tr>
             <tr>
               <td className={td}></td>
-              <td className={td} colSpan={2}>ราคากลาง ( <span className="italic">{bahtText(rep.summary.totalSat)}</span> ตัวอักษร )</td>
+              <td className={td} colSpan={2}>
+                ราคากลาง ( <span className="italic">{bahtText(rep.summary.totalSat)}</span> ตัวอักษร )
+              </td>
               <td className={td}></td>
             </tr>
           </tbody>
@@ -857,6 +907,40 @@ function buildSheets({
                 <b>5. ผลการคำนวณ:</b> Factor F = {fd.factor?.toFixed(6) ?? "1.000000 (ยังไม่ปรับ)"} → A × F = {fmt(fd.afterFactor)} บาท (ปัดเศษ half-up เป็นสตางค์)
               </p>
             </>
+          )}
+          {fd.tableRows.length > 0 && (
+            <div className="mt-4">
+              <p className="font-semibold">ตารางค่า Factor F (ช่วงค่างานต้นทุน — จากตารางที่เลือกในชุดกฎ)</p>
+              <table className="mt-1 w-full text-xs">
+                <thead>
+                  <tr className="bg-slate-100 text-left">
+                    <th className={`${td} w-10`}>ลำดับ</th>
+                    <th className={td}>ช่วงค่างานต้นทุน (ล้านบาท)</th>
+                    <th className={`${tdr} w-24`}>Factor F (ขอบล่าง D)</th>
+                    <th className={`${tdr} w-24`}>Factor F (ขอบบน E)</th>
+                    <th className={`${tdr} w-24`}>ไม่รวม VAT (F)</th>
+                    <th className={`${tdr} w-24`}>ไม่รวม VAT (G)</th>
+                    <th className={`${td} w-24`}>หมายเหตุ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fd.tableRows.map((r, i) => (
+                    <tr key={i} className={r.used ? "bg-amber-100 font-semibold" : ""}>
+                      <td className={td}>{i + 1}</td>
+                      <td className={td}>{r.open ? `ตั้งแต่ ${r.B.toLocaleString("th-TH")} ขึ้นไป` : `${r.B.toLocaleString("th-TH")}–${r.C.toLocaleString("th-TH")}`}</td>
+                      <td className={tdr}>{r.D.toFixed(4)}</td>
+                      <td className={tdr}>{r.E.toFixed(4)}</td>
+                      <td className={tdr}>{r.F !== undefined ? r.F.toFixed(4) : "—"}</td>
+                      <td className={tdr}>{r.G !== undefined ? r.G.toFixed(4) : "—"}</td>
+                      <td className={td}>{r.used ? "แถวที่ใช้คำนวณ" : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                คอลัมน์ที่ใช้จริงในโครงการนี้: {fd.columnLabel} — ตารางแสดงครบทุกช่วงตามที่บันทึกในชุดกฎ (ไม่คำนวณหรือเดาค่าเพิ่ม)
+              </p>
+            </div>
           )}
           {fd.notes.length > 0 && (
             <div className="mt-2">
@@ -921,6 +1005,40 @@ function buildSheets({
             )}
           </tbody>
         </table>
+        {/* B2 — ราคาครุภัณฑ์จัดซื้อต้องมีหลักฐานที่มา/อายุราคาเช่นเดียวกับวัสดุ (ปร.2) */}
+        {rep.equipmentEvidence.length > 0 && (
+          <>
+            <p className="mt-4 text-sm font-semibold">ภาค — ราคาครุภัณฑ์จัดซื้อ (ปร.2)</p>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-100 text-left">
+                  <th className={`${td} w-12`}>ลำดับที่</th>
+                  <th className={td}>รายการ</th>
+                  <th className={td}>หน่วย</th>
+                  <th className={`${tdr} w-24`}>ราคาที่กำหนด/หน่วย</th>
+                  <th className={td}>ที่มาและหลักฐานของราคา</th>
+                  <th className={td}>เหตุผล/หมายเหตุ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rep.equipmentEvidence.map((r) => (
+                  <tr key={`eq-${r.no}`}>
+                    <td className={td}>{r.no}</td>
+                    <td className={td}>{r.name}</td>
+                    <td className={td}>{r.unit}</td>
+                    <td className={tdr}>{fmtBaht(r.unitPrice)}</td>
+                    <td className={td}>
+                      {r.origin}
+                      {r.stale && <div>⚠ {r.staleDetail} — unverified</div>}
+                      {r.notYetPublished && <div>⚠ เดือนอ้างอิงเท่ากับหรือหลังเดือนที่พิมพ์ — ณ วันพิมพ์ยังไม่ปรากฏราคาส่วนกลางของ สนค. ในระบบ — unverified</div>}
+                    </td>
+                    <td className={td}>{r.reason || (r.unstated ? "ต้องกรอกเหตุผลการสืบราคา" : "")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
         {/* B1 — บันทึกเหตุผล/รายละเอียดการสืบราคา "ค่าติดตั้งครุภัณฑ์" (แยกจากราคาครุภัณฑ์ — เล่ม 2 ข้อ 2.2/ข้อ 8) */}
         {rep.installEvidence.length > 0 && (
           <>
@@ -1003,6 +1121,7 @@ function CommitteeForm({ project, onSaved, busy, setBusy }: {
 }) {
   const c = project.committee ?? {};
   const [agency, setAgency] = useState(c.agency ?? "");
+  const [province, setProvince] = useState(c.province ?? "");
   const [chairman, setChairman] = useState(c.chairman ?? "");
   const [member1, setMember1] = useState(c.member1 ?? "");
   const [member2, setMember2] = useState(c.member2 ?? "");
@@ -1021,6 +1140,7 @@ function CommitteeForm({ project, onSaved, busy, setBusy }: {
         ...project,
         committee: {
           agency: agency.trim() || undefined,
+          province: province.trim() || undefined,
           chairman: chairman.trim() || undefined,
           member1: member1.trim() || undefined,
           member2: member2.trim() || undefined,
@@ -1044,6 +1164,9 @@ function CommitteeForm({ project, onSaved, busy, setBusy }: {
       <div className="grid gap-2 md:grid-cols-3">
         <label className={`${lbl} md:col-span-3`}>หน่วยงานเจ้าของโครงการงานก่อสร้าง (แสดงหัวทุกแบบฟอร์ม)
           <input value={agency} onChange={(e) => setAgency(e.target.value)} className={inputCls} />
+        </label>
+        <label className={lbl}>จังหวัดของสถานที่ก่อสร้าง (แสดงหัวทุกแบบฟอร์ม)
+          <input value={province} onChange={(e) => setProvince(e.target.value)} className={inputCls} />
         </label>
         <label className={lbl}>ประธานกรรมการกำหนดราคากลาง
           <input value={chairman} onChange={(e) => setChairman(e.target.value)} className={inputCls} />

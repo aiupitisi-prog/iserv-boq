@@ -20,11 +20,11 @@
 // - ข้อสมมติที่ยืนยันจากเอกสารไม่ได้ → ป้าย "unverified" ใน warnings เสมอ
 
 import type { BoqItem, BoqProject } from "./boq";
-import type { FactorFTable, Ruleset } from "./ruleset";
+import type { FactorFRow, FactorFTable, Ruleset } from "./ruleset";
 import { selectFactorFTable, rulesetStatus } from "./ruleset";
 import { lookupFactorF } from "./calc/factorf";
 import { splitItem, type CalcResult } from "./calc/compute";
-import { formatSatang, mulQty, pctOf, sumSatang, toSatang, type Satang } from "./calc/money";
+import { formatSatang, mulQty, pctOf, proportionSat, sumSatang, toSatang, type Satang } from "./calc/money";
 
 // กฎปฏิทินราคาส่วนกลาง สนค. (TPSO type 10) — ตรวจกับระบบ สนค. จริง ณ 13 พ.ย. 2569 (scripts/tpso-central-months-check.mjs):
 // สนค. เผยแพร่ราคาส่วนกลางเป็นรายเดือนหลังสำรวจจบ — ระบบมีราคาครบ 2566–2569 ถึงเดือนก่อนเดือนพิมพ์ (ต.ค. 2569)
@@ -40,7 +40,9 @@ function calendarMonthsBetween(ref: Date, now: Date): number {
 // — ชิ้น 1: แบบ ปร.1(ก) — แถวต่องานหรือกลุ่มงาน (หมวดงาน) —
 export type GroupRow = {
   section: string; // งานหรือกลุ่มงาน
-  costSat: Satang; // ค่างานต้นทุน (ก่อนคูณ F)
+  matSat: Satang; // ค่าวัสดุรวมของกลุ่ม
+  labSat: Satang; // ค่าแรงรวมของกลุ่ม
+  costSat: Satang; // ค่างานต้นทุน (ก่อนคูณ F) = matSat + labSat
   factor: number; // Factor F ระดับโครงการ
   constructionSat: Satang; // ค่าก่อสร้าง = round(ค่างานต้นทุน × F)
 };
@@ -126,11 +128,23 @@ export type P3Sheet = {
 };
 
 // — ชิ้น 8: รายละเอียดการหาค่า Factor F —
+export type FactorFTableRow = {
+  B: number; // ขอบล่างช่วงต้นทุน (ล้านบาท)
+  C: number; // ขอบบนช่วงต้นทุน (ล้านบาท)
+  D: number; // Factor F ที่ขอบล่าง (คอลัมน์ปกติ)
+  E: number; // Factor F ที่ขอบบน (คอลัมน์ปกติ)
+  F?: number; // "รวมในรูป Factor" (ไม่รวม VAT) ที่ขอบล่าง — ว 481
+  G?: number; // "รวมในรูป Factor" (ไม่รวม VAT) ที่ขอบบน — ว 481
+  open: boolean; // ช่วงปลายเปิด
+  used: boolean; // แถวที่เครื่องยนต์ใช้คำนวณ
+};
+
 export type FactorFDetail = {
   haveTable: boolean;
   A: Satang; // ต้นทุนโดยตรงทั้งโครงการ
   factor: number | null; // F ที่ใช้ (null = ยังไม่ปรับ, F = 1)
   afterFactor: Satang; // A × F (จากเครื่องยนต์)
+  tableRows: FactorFTableRow[]; // ตารางช่วงค่างานต้นทุนทั้งตาราง (สำหรับพิมพ์ต่อท้ายชิ้น 8)
   table?: {
     advancePct: number; // อัตราค่าจ้างล่วงหน้า %
     retentionPct: number; // อัตราเงินประกันผลงาน %
@@ -180,6 +194,23 @@ export type InstallEvidenceRow = {
   reasonMissing: boolean; // true = มีราคาแต่ขาดเหตุผลหรือรายละเอียดการสืบราคาอย่างน้อยหนึ่งส่วน (unverified)
 };
 
+// — ฐานราคากลางต่อรายการสำหรับ "แนบท้ายสัญญา" (ต้องรวมเท่ากับ ปร.4 พอดี) —
+// งานก่อสร้าง = ส่วนแบ่ง afterFactor ตามค่างานต้นทุนรายการ (half-up + ปรับเศษเข้ารายการเงินมากที่สุด)
+// ครุภัณฑ์ = ยอดจาก ปร.2 (ราคา + VAT + ค่าติดตั้ง + VAT) — ห้ามใช้ราคาดิบที่ยังไม่รวม VAT/ค่าติดตั้ง
+// ยังไม่รวม ปร.3: สัญญาบล็อกโครงการที่มีค่าใช้จ่ายพิเศษจนกว่าจะมีแนวทางที่ยืนยันได้
+export type ContractBaseLine = {
+  itemId: string;
+  part: "construction" | "equipment";
+  baseSat: Satang;
+};
+export type ContractBase = {
+  lines: ContractBaseLine[];
+  constructionSat: Satang;
+  equipmentSat: Satang;
+  totalSat: Satang; // constructionSat + equipmentSat
+  roundingAdjSat: Satang; // เศษปัดเศษระดับรายการที่ปรับเข้ารายการเงินมากที่สุด (ให้ Σ ตรงกับ ปร.1(ก))
+};
+
 export type Reg2569Report = {
   warnings: string[];
   // ชิ้น 1 — ปร.1(ก)
@@ -204,7 +235,10 @@ export type Reg2569Report = {
   factorFDetail: FactorFDetail;
   // ชิ้น 9 — บันทึกเหตุผลการสืบราคาวัสดุ
   priceEvidence: PriceEvidenceRow[];
+  equipmentEvidence: PriceEvidenceRow[]; // ราคาครุภัณฑ์จัดซื้อ (ปร.2) — ต้องมีหลักฐานที่มาเช่นเดียวกับวัสดุ (ข้อ 5)
   installEvidence: InstallEvidenceRow[]; // สืบราคาค่าติดตั้งครุภัณฑ์ (แยกส่วนท้ายของชิ้น 9)
+  // ฐานราคากลางต่อรายการสำหรับแนบท้ายสัญญา — ใช้ร่วมกันทั้งหน้าพิมพ์/export (ห้ามคำนวณซ้ำคนละสูตร)
+  contractBase: ContractBase;
   // ยอดเครื่องยนต์เดิม (calc.total — รวมเงินเผื่อจำเป็น/ค่าดำเนินงานของโครงเดิม) — เทียบเคียง
   engineTotalSat: Satang;
 };
@@ -291,6 +325,14 @@ export function buildReg2569Report(
     return { section, rows, sumSat };
   });
 
+  // F4 — แถวที่ยังไม่แยก ก./ข. ถูกนับเป็นค่าวัสดุทั้งหมด: ต้องเตือนให้แยกก่อนใช้ยื่นหน่วยงาน
+  const unsplitCount = p1Sheets.reduce((n, sh) => n + sh.rows.filter((r) => r.unsplit).length, 0);
+  if (unsplitCount > 0) {
+    warnings.push(
+      `${unsplitCount} รายการยังไม่แยกค่าวัสดุ/ค่าแรง — ปร.1/ปร.1(ก) ของชุด 9 ชิ้นลงเป็นค่าวัสดุทั้งหมด (สัดส่วน ก./ข. จะคลาดเคลื่อน); ระบุช่องวัสดุ/แรงงานใน editor ก่อนพิมพ์ใช้จริง`,
+    );
+  }
+
   // — ชิ้น 1: ปร.1(ก) — ค่างานต้นทุนต่อกลุ่ม × F (ระดับโครงการ) —
   const factor = calc.factorF ?? 1;
   if (calc.factorF === null) {
@@ -300,6 +342,8 @@ export function buildReg2569Report(
   }
   const groups: GroupRow[] = p1Sheets.map((sh) => ({
     section: sh.section,
+    matSat: sumSatang(sh.rows.map((r) => r.matSat)),
+    labSat: sumSatang(sh.rows.map((r) => r.labSat)),
     costSat: sh.sumSat,
     factor,
     constructionSat: Math.round(sh.sumSat * factor), // ปัดเศษ half-up ต่อกลุ่ม (เหมือนเครื่องยนต์ระดับโครงการ)
@@ -452,6 +496,48 @@ export function buildReg2569Report(
     p3 = { rows, sumSat: expenseTotalSat, reasons, vatPct };
   }
 
+  // — ฐานราคากลางต่อรายการสำหรับ "แนบท้ายสัญญา" (B1) —
+  // ต้องใช้ฐานเดียวกับ ปร.4: ค่าก่อสร้าง (afterFactor) + ครุภัณฑ์จัดซื้อ (รวม VAT + ค่าติดตั้ง)
+  // ห้ามใช้ afterFactor + ราคาครุภัณฑ์ดิบแบบเดิม (จะขาด VAT/ค่าติดตั้ง และปฏิเสธราคาที่ถูกต้อง)
+  const contractConstructionLines: ContractBaseLine[] = [];
+  let contractRoundingAdjSat: Satang = 0;
+  {
+    const raw = construction.map((it) => {
+      const { mat, lab } = splitItem(it);
+      return { it, baseSat: (mat ?? 0) + (lab ?? 0) };
+    });
+    const medians = raw.map((r) => proportionSat(r.baseSat, constructionTotalSat, calc.directCost));
+    const adj = constructionTotalSat - sumSatang(medians);
+    if (adj !== 0 && medians.length > 0) {
+      // เศษปัดเศษระดับรายการ → เข้ารายการค่างานต้นทุนมากที่สุด (deterministic) ให้ Σ = ปร.1(ก) พอดี
+      let best = 0;
+      for (let i = 1; i < raw.length; i++) if (raw[i].baseSat > raw[best].baseSat) best = i;
+      medians[best] += adj;
+      contractRoundingAdjSat = adj;
+    }
+    raw.forEach((r, i) => {
+      contractConstructionLines.push({ itemId: r.it.id, part: "construction", baseSat: medians[i] });
+    });
+  }
+  const contractEquipmentLines: ContractBaseLine[] = equipment.map((it, i) => ({
+    itemId: it.id,
+    part: "equipment",
+    baseSat: p2?.rows[i]?.totalSat ?? 0,
+  }));
+  const contractBase: ContractBase = {
+    lines: [...contractConstructionLines, ...contractEquipmentLines],
+    constructionSat: constructionTotalSat,
+    equipmentSat: equipTotalSat,
+    totalSat: constructionTotalSat + equipTotalSat,
+    roundingAdjSat: contractRoundingAdjSat,
+  };
+  const contractBaseSum = sumSatang(contractBase.lines.map((l) => l.baseSat));
+  if (contractBaseSum !== contractBase.totalSat) {
+    warnings.push(
+      `ฐานราคากลางรายการสำหรับแนบท้ายสัญญา (${thMoney(contractBaseSum) }) ต่างจากยอด ปร.4 (${thMoney(contractBase.totalSat)}) — ห้ามใช้จัดทำแนบท้ายสัญญาจนกว่าจะแก้ให้ตรง (ผลรวมทุกบรรทัดต้องเท่ากับราคากลาง)`,
+    );
+  }
+
   // — ชิ้น 8: รายละเอียดการหาค่า Factor F — trace จากเครื่องยนต์ + แถว/คอลัมน์ที่ใช้จริง —
   // B2: แสดงขอบ (D/E) ของ "คอลัมน์ที่ใช้จริง" — ตามเงื่อนไขสัญญาแบบเดียวกับเครื่องยนต์:
   // ฝนชุก override คอลัมน์ไม่รวม VAT ถ้าตารางมีคอลัมน์นั้น; ขอคอลัมน์ที่ตารางไม่มี → fallback คอลัมน์ปกติ
@@ -463,9 +549,12 @@ export function buildReg2569Report(
     A: calc.directCost,
     factor: calc.factorF,
     afterFactor: constructionTotalSat,
+    tableRows: [],
     columnLabel: "Factor F (รวม VAT)",
     notes: fdNotes,
   };
+  // แถวที่เครื่องยนต์ใช้จริง — เก็บ reference ไว้ทำเครื่องหมายในตารางที่พิมพ์ต่อท้าย
+  let usedRow: FactorFRow | null = null;
   if (table) {
     factorFDetail.table = {
       advancePct: table.advancePct,
@@ -476,6 +565,7 @@ export function buildReg2569Report(
     };
     try {
       const lk = lookupFactorF(calc.directCost, table); // เงื่อนไขเดียวกับเครื่องยนต์ — deterministic
+      usedRow = lk.row;
       const r = lk.row;
       const open = r.open ?? false;
       const EPS = 1e-9;
@@ -519,16 +609,29 @@ export function buildReg2569Report(
     } catch (e) {
       fdNotes.push(`ไม่สามารถอ้างแถวตารางได้: ${e instanceof Error ? e.message : String(e)}`);
     }
+    // ตารางช่วงค่างานต้นทุนทั้งตาราง — พิมพ์ต่อท้ายชิ้น 8 (เทียบได้กับชีต "ค่า Factor F" ของแบบฟอร์มท้องถิ่น)
+    factorFDetail.tableRows = table.rows.map((r) => ({
+      B: r.B,
+      C: r.C,
+      D: r.D,
+      E: r.E,
+      F: r.F,
+      G: r.G,
+      open: r.open ?? false,
+      used: usedRow !== null && r === usedRow,
+    }));
   }
 
   // — ชิ้น 9: บันทึกเหตุผลการสืบและกำหนดราคาวัสดุก่อสร้าง (รายการงานก่อสร้าง — ครุภัณฑ์อยู่ใน ปร.2) —
   // B3: flag ราคาเก่า >12 เดือน (นับจากเดือนอ้างอิงราคาถึงวันที่พิมพ์) และราคา สนค. ส่วนกลางที่เดือนอ้างอิง ≥ เดือนพิมพ์ (กฎปฏิทิน)
   const nowD = now;
-  const priceEvidence: PriceEvidenceRow[] = [];
   let unstatedCount = 0;
   let staleCount = 0;
   let notYetPublishedCount = 0;
-  construction.forEach((it, i) => {
+
+  // แถวหลักฐานราคาต่อรายการ — ใช้ร่วมทั้งงานก่อสร้าง (ชิ้น 9) และครุภัณฑ์จัดซื้อ (ปร.2)
+  // F3: คลังราคาของฉันที่ไม่มี note = ไม่มีเหตุผลกำกับ → ต้อง flag unstated (ห้ามผ่านเงียบ)
+  function evidenceRow(it: BoqItem, no: number): PriceEvidenceRow {
     const s = it.source;
     let origin: string;
     let unstated = false;
@@ -562,7 +665,13 @@ export function buildReg2569Report(
       }
     } else {
       origin = `คลังราคาของฉัน — หมวด ${s.category} · ราคา ณ ${fmtDate(s.priceAgeRef)} · เลือกเมื่อ ${fmtDate(s.pickedAt)}`;
-      if (s.note) origin += ` · หมายเหตุที่มาราคา: ${s.note}`; // F6 — เหตุผลกำกับของคลังส่วนตัวต้องพิมพ์ด้วย
+      if (s.note?.trim()) origin += ` · หมายเหตุที่มาราคา: ${s.note}`; // F6 — เหตุผลกำกับของคลังส่วนตัวต้องพิมพ์ด้วย
+      else {
+        // F3 — มีแหล่งราคาแต่ไม่มีเหตุผลกำกับ: ถือว่ายังไม่ระบุเหตุผล (ต้องกรอกก่อนใช้จริง)
+        unstated = true;
+        unstatedCount++;
+        origin += " · ⚠ ไม่ได้ระบุเหตุผล/หมายเหตุที่มาของราคาในคลังของฉัน — unverified";
+      }
       const refDate = new Date(s.priceAgeRef);
       if (!isNaN(refDate.getTime())) {
         const months = calendarMonthsBetween(refDate, nowD);
@@ -573,8 +682,8 @@ export function buildReg2569Report(
         }
       }
     }
-    priceEvidence.push({
-      no: i + 1,
+    return {
+      no,
       name: it.name,
       unit: it.unit,
       unitPrice: it.price,
@@ -584,11 +693,15 @@ export function buildReg2569Report(
       stale,
       staleDetail,
       notYetPublished,
-    });
-  });
+    };
+  }
+
+  const priceEvidence: PriceEvidenceRow[] = construction.map((it, i) => evidenceRow(it, i + 1));
+  // B2 — ครุภัณฑ์จัดซื้อต้องมีหลักฐานที่มา/อายุราคาเช่นเดียวกัน (เดิมหลุดจากชิ้น 9 เพราะวนเฉพาะ construction)
+  const equipmentEvidence: PriceEvidenceRow[] = equipment.map((it, i) => evidenceRow(it, i + 1));
   if (unstatedCount > 0) {
     warnings.push(
-      `${unstatedCount} รายการยังไม่ระบุแหล่งที่มาราคา — แบบบันทึกเหตุผลการสืบราคาวัสดุ (ชิ้นที่ 9) ต้องกรอกเหตุผลเพิ่มก่อนใช้จริง`,
+      `${unstatedCount} รายการยังไม่ระบุแหล่งที่มาราคา (วัสดุก่อสร้าง/ครุภัณฑ์) — แบบบันทึกเหตุผลการสืบราคาวัสดุ (ชิ้นที่ 9) ต้องกรอกเหตุผลเพิ่มก่อนใช้จริง`,
     );
   }
   if (staleCount > 0) {
@@ -653,7 +766,9 @@ export function buildReg2569Report(
     },
     factorFDetail,
     priceEvidence,
+    equipmentEvidence,
     installEvidence,
+    contractBase,
     engineTotalSat: calc.total,
   };
 }

@@ -125,6 +125,7 @@ export type ProjectAward = {
   contractNoteDate?: string; // สัญญาเลขที่ / ลงวันที่
   contractor?: string; // ชื่อผู้รับจ้าง
   contractorSigner?: string; // ผู้ลงนามฝ่ายผู้รับจ้าง
+  procurementOfficer?: string; // เจ้าหน้าที่พัสดุผู้จัดทำแนบท้ายสัญญา (ไม่ใช่กรรมการกำหนดราคากลาง)
   savedAt?: string; // เวลาบันทึกล่าสุด (ISO)
 };
 
@@ -145,6 +146,7 @@ export type SpecialExpense = {
 // คณะกรรมการกำหนดราคากลาง — ช่องลงนามและหัวแบบฟอร์ม ปร.1(ก)/ปร.2(ก)/ปร.3/ปร.4 (ฟิลด์ optional)
 export type Committee = {
   agency?: string; // หน่วยงานเจ้าของโครงการงานก่อสร้าง (แสดงหัวทุกแบบฟอร์ม)
+  province?: string; // จังหวัดของสถานที่ก่อสร้าง (หัวแบบฟอร์ม — คนละความหมายกับ BoqProject.province ที่เป็นรหัสราคา TPSO)
   chairman?: string; // ประธานกรรมการกำหนดราคากลาง
   member1?: string; // กรรมการกำหนดราคากลาง (คนที่ 1)
   member2?: string; // กรรมการกำหนดราคากลาง (คนที่ 2)

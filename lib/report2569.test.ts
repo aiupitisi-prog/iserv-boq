@@ -186,6 +186,8 @@ describe("buildReg2569Report (ชุด 9 ชิ้น)", () => {
   it("ชิ้น 1 — ปร.1(ก): Σค่างานต้นทุนรายกลุ่ม == directCost และ Σค่าก่อสร้าง + ปรับปัดเศษ == afterFactor เครื่องยนต์", () => {
     expect(rep.groups.map((g) => g.costSat)).toEqual([100_250, 134_997]);
     expect(rep.groups.reduce((a, g) => a + g.costSat, 0)).toBe(calc.directCost); // 235,247
+    expect(rep.groups.reduce((a, g) => a + g.matSat + g.labSat, 0)).toBe(calc.directCost);
+    expect(rep.groups.reduce((a, g) => a + g.matSat, 0) + rep.groups.reduce((a, g) => a + g.labSat, 0)).toBe(calc.directCost);
     expect(rep.constructionTotalSat).toBe(calc.afterFactor);
     expect(rep.groupsSumSat + rep.roundingAdjSat).toBe(rep.constructionTotalSat);
     // ค่าก่อสร้างรวม (ตัวเลขทอง — เครื่องยนต์ปัด half-up): A = 2,352.47 บาท × F ≈ 1.2499988 → 2,940.58 บาท
@@ -239,6 +241,24 @@ describe("buildReg2569Report (ชุด 9 ชิ้น)", () => {
     expect(rep.warnings.some((w) => w.includes("ต่างจากยอดรวมเครื่องยนต์เดิม"))).toBe(true);
   });
 
+  it("B1 — ฐานราคากลางของแนบท้ายสัญญา (contractBase) ตรงกับ ปร.4 และครบทุกบรรทัด", () => {
+    const base = rep.contractBase;
+    expect(base.constructionSat).toBe(rep.summary.constructionSat);
+    expect(base.equipmentSat).toBe(rep.summary.equipmentSat);
+    // precondition: contractBase ไม่รวม ปร.3 (สัญญาบล็อกโครงการที่มีค่าใช้จ่ายพิเศษ)
+    expect(base.totalSat + rep.summary.expenseSat).toBe(rep.summary.totalSat);
+    expect(base.totalSat).toBe(rep.summary.constructionSat + rep.summary.equipmentSat);
+    expect(base.lines).toHaveLength(proj.items.length);
+    expect(base.lines.reduce((a, l) => a + l.baseSat, 0)).toBe(base.totalSat);
+    // ครุภัณฑ์ใช้ยอด ปร.2 (รวม VAT + ค่าติดตั้ง) — ไม่ใช่ราคาดิบ
+    const eqLine = base.lines.find((l) => l.part === "equipment")!;
+    expect(eqLine.baseSat).toBe(rep.p2!.sumSat);
+    expect(eqLine.baseSat).toBeGreaterThan(2 * 14500 * 100);
+    // งานก่อสร้างกระจาย afterFactor ครบทุกบรรทัด
+    expect(base.lines.filter((l) => l.part === "construction")).toHaveLength(3);
+    expect(rep.warnings.some((w) => w.includes("ฐานราคากลางรายการสำหรับแนบท้ายสัญญา"))).toBe(false);
+  });
+
   it("ชิ้น 8 — รายละเอียดการหาค่า Factor F: ตาราง/แถว/คอลัมน์/A/ค่าที่ใช้", () => {
     expect(rep.factorFDetail.haveTable).toBe(true);
     expect(rep.factorFDetail.A).toBe(235_247);
@@ -253,6 +273,10 @@ describe("buildReg2569Report (ชุด 9 ชิ้น)", () => {
     expect(rep.factorFDetail.row?.rangeLabel).toContain("0–100 ล้านบาท");
     expect(rep.factorFDetail.columnLabel).toContain("รวม VAT");
     expect(rep.factorFDetail.notes.some((n) => n.includes("ตารางที่ใช้"))).toBe(true); // trace จากเครื่องยนต์
+    // ตารางช่วงค่างานต้นทุนทั้งตาราง — ใช้พิมพ์ต่อท้ายชิ้น 8 และไฮไลต์แถวที่ lookup ใช้
+    expect(rep.factorFDetail.tableRows).toHaveLength(TEST_RULESET.factorF!.rows.length);
+    expect(rep.factorFDetail.tableRows.filter((r) => r.used)).toHaveLength(1);
+    expect(rep.factorFDetail.tableRows[0].used).toBe(true);
   });
 
   it("ชิ้น 9 — บันทึกเหตุผลสืบราคาวัสดุ: ที่มา สนค. + เตือนรายการที่ไม่ระบุแหล่งที่มา", () => {
@@ -261,6 +285,14 @@ describe("buildReg2569Report (ชุด 9 ชิ้น)", () => {
     expect(rep.priceEvidence[0].origin).toContain("พ.ศ. 2569");
     expect(rep.priceEvidence[2].unstated).toBe(true); // งานเหล็กเส้นไม่มี source
     expect(rep.warnings.some((w) => w.includes("ยังไม่ระบุแหล่งที่มาราคา"))).toBe(true);
+  });
+
+  it("B2 — ราคาครุภัณฑ์จัดซื้อมีหลักฐานที่มาแยกภาคในชิ้น 9", () => {
+    expect(rep.equipmentEvidence).toHaveLength(1);
+    const ev = rep.equipmentEvidence[0];
+    expect(ev.name).toContain("ตู้พาเนล");
+    expect(ev.unitPrice).toBe(14500);
+    expect(ev.unstated).toBe(true); // fixture ไม่มี source — ต้องติดป้าย ไม่ปล่อยผ่านเงียบ
   });
 
   it("กรณีไม่มีตาราง Factor F → F = 1 + VAT ครุภัณฑ์ unverified", () => {
@@ -544,6 +576,27 @@ describe("buildReg2569Report (ชุด 9 ชิ้น)", () => {
     expect(ev.origin).toContain("หมายเหตุที่มาราคา: ค่าแรงพื้นฐานเขตพื้นที่"); // F6 — note ของคลังส่วนตัวต้องพิมพ์
     expect(ev.stale).toBe(true); // ม.ค. 2567 → 34 เดือน
     expect(rep15.warnings.some((w) => w.includes("เก่ากว่า 12 เดือน"))).toBe(true);
+  });
+
+  it("F3 — คลังส่วนตัวที่ note ว่าง → flag unstated (มีเหตุผลกำกับไม่ได้ = ต้องเตือน)", () => {
+    const proj15b = project({
+      items: [
+        item({
+          section: "งานโครงสร้าง", name: "วัสดุคลังภายใน", unit: "หน่วย", qty: 1, price: 100,
+          source: {
+            kind: "private", entryId: "p2", category: "วัสดุ",
+            note: "   ",
+            priceAgeRef: "2026-10-01T00:00:00.000Z", priceAtPick: 100, pickedAt: "2026-11-01T00:00:00.000Z",
+          },
+        }),
+      ],
+    });
+    const calc15b = computeGovBOQ(proj15b, TEST_RULESET);
+    const rep15b = buildReg2569Report(proj15b, TEST_RULESET, calc15b, NOW);
+    const ev = rep15b.priceEvidence[0];
+    expect(ev.unstated).toBe(true);
+    expect(ev.origin).toContain("ไม่ได้ระบุเหตุผล");
+    expect(rep15b.warnings.some((w) => w.includes("ยังไม่ระบุแหล่งที่มาราคา"))).toBe(true);
   });
 
   it("B4 — ชุดกฎถูก supersededBy → เตือนให้ย้ายชุดกฎก่อนพิมพ์ (พิมพ์ไปกับ ปร.4/ชิ้น 8)", () => {

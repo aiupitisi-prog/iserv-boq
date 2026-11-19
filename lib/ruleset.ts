@@ -315,6 +315,17 @@ export function rulesetStatus(rs: Ruleset | undefined): "ok" | "superseded" | "m
   return rs.supersededBy ? "superseded" : "ok";
 }
 
+// ปี พ.ศ. ของชุดกฎ — อ่านจาก effectiveFrom (YYYY-MM-DD) เท่านั้น; null = ไม่ทราบ (ห้ามเดาปี)
+// รับเฉพาะปี ค.ศ. 1900–2100 ก่อน +543 — ชุดกฎที่ import ด้วยปี พ.ศ. (เช่น 2569-01-01)
+// ต้องไม่ถูกแปลงซ้ำเป็น 3112; นอกช่วง = null ให้ผู้เรียกติดป้าย unverified
+// ใช้กับชื่อเรื่อง/ชื่อไฟล์เอกสาร เพื่อไม่ให้ hardcode "พ.ศ. 2569" ไว้ในโค้ดเมื่อชุดกฎเปลี่ยน
+export function rulesetBeYear(rs: Ruleset | undefined | null): number | null {
+  const m = /^(\d{4})-\d{2}-\d{2}$/.exec(rs?.effectiveFrom ?? "");
+  if (!m) return null;
+  const y = Number(m[1]);
+  return y >= 1900 && y <= 2100 ? y + 543 : null;
+}
+
 // checksum ของ "เนื้อหาตัวเลขกฎหมาย" ทั้งชุด — ใช้ตรวจ import/export ให้ตรงกัน และตรวจพบการแก้ไฟล์ภายหลัง
 // (null = ไม่มีข้อมูลส่วนนั้น — canonical ทุกรูปแบบเดียวกันข้ามเครื่อง)
 // factorFTables (ชุดตารางหลายตาราง เช่น ว 481) ใส่ใน checksum เฉพาะเมื่อมี เพื่อไม่ให้ checksum

@@ -1,8 +1,8 @@
 // ทดสอบการนำเข้าชุดกฎ — ตารางเดี่ยว (รูปแบบเดิม) + ชุดตาราง factorFTables (ว 481 ชุดข้อมูลจริงใน repo)
 // ⚠️ ข้อมูลใน describe "ตารางเดี่ยว/ชุดตารางย่อย" เป็นข้อมูลสมมุติเพื่อทดสอบโครงสร้าง — ไม่ใช่ตัวเลขกฎหมาย
 import { describe, expect, it } from "vitest";
-import type { FactorFTable } from "./ruleset";
-import { computeChecksum, rulesetChecksum } from "./ruleset";
+import type { FactorFTable, Ruleset } from "./ruleset";
+import { computeChecksum, rulesetBeYear, rulesetChecksum } from "./ruleset";
 import { prepareImport } from "./ruleset-import";
 import { getW481Ruleset, verifyW481Checksums } from "./ruleset-w481-2569";
 
@@ -22,6 +22,27 @@ const legacyJson = JSON.stringify({
   sourceDoc: "ข้อมูลสมมุติเพื่อทดสอบ — ไม่ใช่เอกสารทางการ",
   effectiveFrom: "2569-01-01",
   factorF: LEGACY_TABLE,
+});
+
+describe("rulesetBeYear — ปี พ.ศ. จาก effectiveFrom (ห้ามเดา/บวกซ้ำ)", () => {
+  const rs = (effectiveFrom: string) => ({ effectiveFrom }) as Ruleset;
+
+  it("ปี ค.ศ. → พ.ศ.", () => {
+    expect(rulesetBeYear(rs("2026-06-09"))).toBe(2569);
+    expect(rulesetBeYear(rs("2000-01-01"))).toBe(2543);
+  });
+
+  it("ปี พ.ศ. ที่ importer ยอมรับ (เช่น 2569-01-01) → null ไม่บวกซ้ำเป็น 3112", () => {
+    expect(rulesetBeYear(rs("2569-01-01"))).toBeNull();
+    expect(rulesetBeYear(rs("2500-01-01"))).toBeNull();
+  });
+
+  it("รูปแบบไม่รู้จัก/ไม่มีชุดกฎ → null", () => {
+    expect(rulesetBeYear(rs("09/06/2569"))).toBeNull();
+    expect(rulesetBeYear(rs("0025-01-01"))).toBeNull();
+    expect(rulesetBeYear(null)).toBeNull();
+    expect(rulesetBeYear(undefined)).toBeNull();
+  });
 });
 
 describe("prepareImport — ตารางเดี่ยว (รูปแบบเดิมของเฟส 2)", () => {

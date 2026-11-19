@@ -117,6 +117,80 @@ describe("computePriceReduction (แนบท้ายสัญญา — ปร
     expect(r.lines.reduce((a, b) => a + b.reducedSat, 0) + r.fixedTotalSat).toBe(r.winningSat);
   });
 
+  it("ฐานจากชุด 9 ชิ้น (ปร.4): ใช้ยอดครุภัณฑ์รวม VAT + ค่าติดตั้ง และไม่หักส่วนคงเดิมซ้ำ", () => {
+    // ก่อสร้าง 2,000.00 + ครุภัณฑ์ 2×1,000 + VAT 7% + ค่าติดตั้ง 2×100 + VAT 7%
+    // = 2,000 + 2,000 + 140 + 200 + 14 = 4,354.00 บาท
+    const p = mkProject([
+      { name: "งานก่อสร้าง", qty: 1, price: 2000 },
+      { name: "ครุภัณฑ์", part: "equipment", qty: 2, price: 1000, installPrice: 100 },
+    ]);
+    const rs: Ruleset = {
+      id: "rs-base", name: "ชุดกฎทดสอบ", sourceDoc: "ทดสอบ", effectiveFrom: "1970-01-01",
+      checksum: "0", contingencyPct: 5, swcPct: 3, createdAt: "2026-01-01T00:00:00.000Z",
+      factorF: { advancePct: 0, retentionPct: 0, interestPct: 0, vatPct: 7, workType: "building", rows: [{ B: 0, C: 100, D: 1, E: 1 }] },
+    };
+    const calc = computeGovBOQ(p, rs);
+    const base = {
+      lines: [
+        { itemId: p.items[0].id, baseSat: 200_000 },
+        { itemId: p.items[1].id, baseSat: 235_400 },
+      ],
+      totalSat: 435_400,
+    };
+    const r = computePriceReduction(p, calc, 4000, base);
+
+    expect(r.ok).toBe(true);
+    expect(r.baseSource).toBe("reg2569");
+    expect(r.reducibleBaseSat).toBe(435_400);
+    expect(r.fixedTotalSat).toBe(0); // ฐาน ปร.4 รวมทุกองค์ประกอบแล้ว — ห้ามหักเงินเผื่อ/ค่าดำเนินงานซ้ำ
+    expect(r.fixedLines).toHaveLength(0);
+    expect(r.winItemsSat).toBe(400_000);
+    expect(r.lines.find((l) => l.part === "equipment")!.medianSat).toBe(235_400);
+    expect(r.lines.reduce((a, b) => a + b.reducedSat, 0)).toBe(400_000);
+    // ไม่มีคำเตือนเรื่องฐานเครื่องยนต์/ส่วนคงเดิมในโหมดฐาน ปร.4
+    expect(r.warnings.some((w) => w.includes("ยอดรวมของเครื่องยนต์"))).toBe(false);
+  });
+
+  it("ราคาเสนอระหว่างฐานเครื่องยนต์เดิมกับฐาน ปร.4 — ต้องไม่ถูกปฏิเสธ (B1/F5)", () => {
+    const p = mkProject([{ name: "งานก่อสร้าง", qty: 1, price: 1000 }]);
+    const calc = computeGovBOQ(p, null); // ฐานเครื่องยนต์ = 1,000.00
+    const base = { lines: [{ itemId: p.items[0].id, baseSat: 120_000 }], totalSat: 120_000 };
+
+    const oldReject = computePriceReduction(p, calc, 1100); // 1,100 > 1,000 ฐานเดิม
+    expect(oldReject.ok).toBe(false);
+
+    const r = computePriceReduction(p, calc, 1100, base); // 1,100 < 1,200 ฐาน ปร.4
+    expect(r.ok).toBe(true);
+    expect(r.reducibleBaseSat).toBe(120_000);
+    expect(r.lines[0].reducedSat).toBe(110_000);
+  });
+
+  it("ฐานจาก ปร.4 ไม่ครบทุกบรรทัด หรือผลรวมไม่ตรง — บล็อกเอกสาร", () => {
+    const p = mkProject([
+      { name: "งาน ก.", qty: 1, price: 1000 },
+      { name: "งาน ข.", qty: 1, price: 1000 },
+    ]);
+    const calc = computeGovBOQ(p, null);
+
+    const missing = computePriceReduction(p, calc, 1500, {
+      lines: [{ itemId: p.items[0].id, baseSat: 100_000 }],
+      totalSat: 100_000,
+    });
+    expect(missing.ok).toBe(false);
+    expect(missing.error).toContain("ไม่ครบทุกบรรทัด");
+
+    const mismatch = computePriceReduction(p, calc, 1500, {
+      lines: [
+        { itemId: p.items[0].id, baseSat: 100_000 },
+        { itemId: p.items[1].id, baseSat: 100_000 },
+      ],
+      totalSat: 250_000,
+    });
+    expect(mismatch.ok).toBe(false);
+    expect(mismatch.error).toContain("ไม่เท่ากับยอดรวมที่แจ้ง");
+    expect(mismatch.lines).toHaveLength(0);
+  });
+
   it("ข้อความแจ้งเตือน unverified ต้องมาครบเสมอ (ห้ามเดาข้อกฎหมาย)", () => {
     const p = mkProject([{ qty: 1, price: 1000 }]);
     const r = computePriceReduction(p, computeGovBOQ(p, null), 500);
@@ -124,6 +198,19 @@ describe("computePriceReduction (แนบท้ายสัญญา — ปร
     expect(r.warnings.some((w) => w.includes("unverified"))).toBe(true);
     expect(r.warnings.some((w) => w.includes("ว 651"))).toBe(true);
     expect(r.warnings.some((w) => w.includes("3 จังหวัดชายแดนภาคใต้"))).toBe(true);
+  });
+
+  it("โครงการที่มีค่าใช้จ่ายพิเศษ (ปร.3) — บล็อกจนกว่าจะกำหนดแนวทาง (ห้ามเดา)", () => {
+    const p = mkProject([{ name: "งานรวม", qty: 1, price: 1000 }]);
+    p.specialExpenses = [
+      { id: "se1", name: "ค่าใช้จ่ายพิเศษทดสอบ", qty: 1, unit: "งาน", amount: 100, vatIncluded: false },
+    ];
+    const calc = computeGovBOQ(p, null);
+    const r = computePriceReduction(p, calc, 900);
+
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("ค่าใช้จ่ายพิเศษ");
+    expect(r.lines).toHaveLength(0); // ไม่สร้างตัวเลขที่อาจผิด
   });
 
   it("กรณีไม่ถูกต้อง — ราคาเสนอสูงกว่าราคากลาง / ไม่ได้กรอก / BOQ ว่าง / ส่วนคงเดิมกินวงเงิน", () => {
