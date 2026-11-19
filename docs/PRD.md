@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| เอกสาร | Product Requirements Document (PRD) ฉบับที่ **1.2** |
-| วันที่ | 10 พฤศจิกายน 2569 |
-| ประวัติแก้ไข | v1.0 — ร่างแรก · v1.1 — เพิ่มขอบเขตเครื่องยนต์ราคากลาง (Factor F) + PriceEvidence ในเฟส 1–3 และเครื่องมือ AI Agents/Skills · **v1.2 — เพิ่มส่วนที่ 5 ฐานกฎหมายหลักเกณฑ์ราคากลาง 2569**: โครงการคำนวณใหม่แบบ Factor F, ชุดแบบฟอร์ม ปร.1–ปร.4 ฉบับระเบียบ, GAP เอกสารพิมพ์ 10 ฉบับปัจจุบัน และปรับเป้าเฟส 3 เป็น "จัดทำเอกสารตรงระเบียบ 2569" |
+| เอกสาร | Product Requirements Document (PRD) ฉบับที่ **1.3** |
+| วันที่ | 19 พฤศจิกายน 2569 |
+| ประวัติแก้ไข | v1.0 — ร่างแรก · v1.1 — เพิ่มขอบเขตเครื่องยนต์ราคากลาง (Factor F) + PriceEvidence ในเฟส 1–3 และเครื่องมือ AI Agents/Skills · **v1.2 — เพิ่มส่วนที่ 5 ฐานกฎหมายหลักเกณฑ์ราคากลาง 2569**: โครงการคำนวณใหม่แบบ Factor F, ชุดแบบฟอร์ม ปร.1–ปร.4 ฉบับระเบียบ, GAP เอกสารพิมพ์ 10 ฉบับปัจจุบัน และปรับเป้าเฟส 3 เป็น "จัดทำเอกสารตรงระเบียบ 2569" · **v1.3 — ปรับ §10 ให้ตรงทีมเอเจนต์/สกิลที่สร้างจริง**: เพิ่ม `boq-lead`, `boq-docs-engineer`, `boq-qa-release` และ skill ใหม่ 5 ตัว พร้อม risk class/gate/handoff |
 | เว็บไซต์ | https://iserv-boq.vercel.app |
 | Repository | https://github.com/aiupitisi-prog/iserv-boq |
 | สถานะ | ใช้งานจริง (production) — เวอร์ชันต้นแบบที่พัฒนาต่อได้ |
@@ -404,21 +404,33 @@ Response (ตัดย่อ) — เดิน `children` แบบ recursive:
 
 ---
 
-## 10. เครื่องมือ AI Agents และ Skills ประจำโปรเจกต์ (เพิ่มใน v1.1)
+## 10. เครื่องมือ AI Agents และ Skills ประจำโปรเจกต์ (เพิ่มใน v1.1 · ปรับปรุง v1.3)
+
+> **สเปกฉบับเต็มของทีมเอเจนต์/สกิล** (บทบาท, risk class, gate G0–G5, workflow W1–W6, permission matrix, evidence/handoff, metrics, rollout): ดู `docs/PRD-AGENT-TEAM.md`
 
 ติดตั้งใน repo แล้ว — Agents มีให้ทั้ง **OpenCode** (`.opencode/agents/`) และ **Claude Code** (`.claude/agents/`)
 (เนื้อหาชุดเดียวกัน ต่างเฉพาะ frontmatter) · Skills อยู่ที่ `.claude/skills/<id>/SKILL.md` (ทั้งสองเครื่องมืออ่านได้)
 
 | Agent | บทบาท | เรียกใช้เมื่อ |
 |---|---|---|
-| `boq-compliance-reviewer` | ตรวจรับ อ่านอย่างเดียว | หลังแก้สิ่งที่แตะการคำนวณ แบบฟอร์ม ปร.1–ปร.4 Factor F แหล่งราคา PriceEvidence disclaimer เอกสารพิมพ์ |
+| `boq-lead` | Orchestrator — brief, risk class, routing, gate, handoff | เริ่มงานใหม่หรือต้องประสานหลายเอเจนต์ |
+| `boq-docs-engineer` | เอกสาร 9 ชิ้น, หน้าพิมพ์ A4, xlsx, แนบท้ายสัญญา | แตะ `lib/report2569.ts`, `lib/export-*.ts`, `app/projects/*/docs/**` |
+| `boq-qa-release` | เทสต์/typecheck/build, commit/push, ตรวจ Vercel + prod | ก่อนปิดงานหรือปล่อยเวอร์ชัน |
+| `boq-compliance-reviewer` | ตรวจรับ อ่านอย่างเดียว | หลังแก้สิ่งที่แตะการคำนวณ แบบฟอร์ม ปร.1–ปร.4 Factor F แหล่งราคา PriceEvidence disclaimer เอกสารพิมพ์ สัญญา |
 | `boq-calc-engineer` | เขียนโค้ด + ทดสอบเครื่องยนต์คำนวณ | งานเฟส 2–3 ที่แตะ `lib/calc/` หรือ ruleset registry |
 | `price-data-steward` | ดูแลข้อมูลราคา + ruleset | เมื่อ TPSO / แคช / snapshot / ประกาศ / ไฟล์ ruleset เปลี่ยน |
 
+> `boq-ui-engineer` เป็นทางเลือกใน Phase 4 — ยังไม่สร้างไฟล์
+
 | Skill | สาระสำคัญ |
 |---|---|
-| `iserv-boq-dev-workflow` | โครงสร้างไฟล์, ข้อตกลงเหล็ก (ธีม, ข้อมูลผู้ใช้, disclaimer, deploy), การ push ผ่าน Contents API, ข้อจำกัด Vercel Hobby |
-| `tpso-price-integration` | API สนค. ครบ, ข้อจำกัด CORS/timeout, แคช, เดือนยกเลิกราคาส่วนกลาง, snapshot, PriceEvidence |
-| `thai-govt-base-price-rules` | เช็กลิสต์หลักเกณฑ์ราคากลางราชการ, ลำดับคำนวณ ปร.1–ปร.4, สูตร Factor F, เวกเตอร์ทดสอบ, กฎ "unverified — ห้ามเดาข้อกฎหมาย" |
+| `boq-agent-operating-model` | Risk class R0–R4, routing, gates G0–G5, handoff/evidence, stop rules, human-in-the-loop |
+| `iserv-boq-dev-workflow` v2 | โครงสร้างไฟล์, ข้อตกลงเหล็ก (ธีม, ข้อมูลผู้ใช้, disclaimer, deploy), test matrix, commit/push ด้วย credential helper, ข้อจำกัด Vercel Hobby |
+| `boq-money-invariants` | หน่วยสตางค์ integer, การปัดเศษ, INV-1–INV-12, ฐาน `contractBase`, การปรับลดราคา |
+| `boq-report-2569` | ชุด 9 ชิ้น, กฎแต่ละแบบฟอร์ม, จำนวนแผ่น, xlsx, แนบท้ายสัญญา, parity checklist |
+| `boq-ruleset-pipeline` | manifest, parser `--dry`/`--strict`, checksum, provenance, import validation, superseded |
+| `boq-release-verification` | Pre-flight, vitest/tsc/build, rebase, commit/push auth, Vercel SHA เต็ม, prod 200, rollback/evidence |
+| `tpso-price-integration` v1.1 | API สนค. ครบ, CORS/timeout, แคช, snapshot-first/fallback, กฎปฏิทินราคาส่วนกลาง (`notYetPublished`), PriceEvidence |
+| `thai-govt-base-price-rules` v2 | เช็กลิสต์หลักเกณฑ์ราคากลางราชการ, ลำดับคำนวณ ปร.1–ปร.4, Factor F, ปร.3/contractBase, เวกเตอร์ทดสอบ, กฎ "unverified — ห้ามเดาข้อกฎหมาย" |
 
-**Workflow มาตรฐาน:** งานที่แตะการคำนวณ/ฟอร์ม/ราคา → agent ที่เกี่ยวข้องทำงาน (โหลด skill ก่อนเสมอ) → ปิดงานด้วย `boq-compliance-reviewer` ตรวจ → ตัวเลขที่เป็นกฎหมายทุกตัว ผู้ใช้ต้องยืนยันกับราชกิจจานุเบกษาต้นฉบับ → เมื่อ PRD/โครงสร้างเปลี่ยน ให้ปรับ skills ทั้งสองตำแหน่ง (`.opencode/agents/` และ `.claude/agents/`) พร้อมกัน
+**Workflow มาตรฐาน:** รับงาน → `boq-lead` จัด risk class R0–R4 + เขียน brief (G0) → agent เจ้าของ scope ทำงาน (โหลด skill ก่อนเสมอ) → `boq-compliance-reviewer` ตรวจแบบคนละ session (G2) → `boq-qa-release` รันเทสต์/tsc/build + commit/push + ตรวจ Vercel ด้วย SHA เต็ม (G1/G4) → ตัวเลขที่เป็นกฎหมายทุกตัว ผู้ใช้ต้องยืนยันกับราชกิจจานุเบกษาต้นฉบับ (G5) → เมื่อ PRD/โครงสร้างเปลี่ยน ให้ปรับ skills ต้นทางที่ `.claude/skills/` และ agent ทั้งสอง runtime (`.opencode/agents/` และ `.claude/agents/`) พร้อมกัน

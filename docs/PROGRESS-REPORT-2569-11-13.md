@@ -668,3 +668,20 @@ Golden ที่ตรึงในเทสต์ (คัดจากหน้�
 - **สรุป: PASS** — ไม่มี finding ระดับ block/fix คงเหลือ; ข้อสังเกตที่ไม่บล็อกคือปี พ.ศ. ที่ import แบบ พ.ศ. จะถูกติดป้าย unverified (ถูกต้องตามหลักห้ามเดา) และ U1 สูตร ปร.3 ยังรอตรวจต้นฉบับ
 - **ปิดงาน:** commit `afeb4488a4740b6d3d095169acaade7f954ee11e` push ขึ้น `main` แล้ว · Vercel deployment ของ SHA นี้ **success** (target `https://vercel.com/aiupitisi-7393/iserv-boq/9cYARShMpVxmZpjQcfJUqtRnS9m7`) · prod `https://iserv-boq.vercel.app/rulesets` ตอบ **HTTP 200** (ก่อน rebase มี snapshot commit อัตโนมัติ 2 ตัว จึง rebase แล้วรันเทสต์/tsc/build ซ้ำ — ผ่านทั้งหมด)
 
+### 16.6 สเปก Agent Team & Skills (19 พ.ย. 2569)
+
+เพิ่ม `docs/PRD-AGENT-TEAM.md` — PRD สำหรับสร้างทีมเอเจนต์ประจำโปรเจกต์: agent ใหม่ 3 ตัว (`boq-lead`, `boq-docs-engineer`, `boq-qa-release`) + ปรับ 3 ตัวเดิม · skill ใหม่ 5 ตัว + ปรับ 3 ตัว · risk class R0–R4 · gates G0–G5 · workflows W1–W6 · permission matrix · evidence/handoff · metrics และ rollout 4 ระยะ — อ้างอิง baseline 307 เทสต์/`f2d5d07` และบทเรียน B1–B3/F1–F5 จากรอบ 10
+
+### 16.7 สร้างไฟล์ Agent Team & Skills จริง (19 พ.ย. 2569)
+
+สร้าง/ปรับไฟล์จริงตาม `docs/PRD-AGENT-TEAM.md` — ไม่ใช่แค่เอกสาร:
+
+- **Agents ใหม่ 3 ตัว:** `boq-lead` (primary orchestrator, `docs/**` + `temp/**` เท่านั้น), `boq-docs-engineer` (report/print/xlsx/contract), `boq-qa-release` (test/build/commit/push/Vercel) — มีทั้ง `.opencode/agents/` และ `.claude/agents/`
+- **Agents เดิม 3 ตัว:** `boq-calc-engineer`, `boq-compliance-reviewer`, `price-data-steward` — ขยาย scope/skills/permissions ตาม PRD; reviewer ยัง read-only (ไม่มี edit/shell/subagent)
+- **Skills ใหม่ 5 ตัว:** `boq-agent-operating-model`, `boq-money-invariants`, `boq-report-2569`, `boq-ruleset-pipeline`, `boq-release-verification` — ต้นทางเดียวที่ `.claude/skills/<id>/SKILL.md`
+- **Skills เดิม 3 ตัว:** `iserv-boq-dev-workflow` v2, `thai-govt-base-price-rules` v2, `tpso-price-integration` v1.1 — เพิ่ม test matrix, release/auth, contractBase/ปร.3, snapshot-first/`notYetPublished`
+- **Ops docs:** `docs/agent-ops/README.md` (โฟลเดอร์/รหัส EV/FND/U/DEC + templates) และ `docs/agent-ops/open-questions.md` (U1–U7 พร้อม owner/แหล่งที่ต้องเปิด)
+- **Consistency check:** เนื้อหา body ของ agent ทั้ง 6 ตัวตรงกันระหว่างสอง runtime (ต่างเฉพาะ frontmatter) · `opencode debug agents` โหลด agent ครบ 6 ตัว (lead = primary, อื่น ๆ = subagent) · skill ทั้ง 8 ตัวมีไฟล์จริงและ runtime เห็น · ไม่พบ secret/TODO · `git diff --check` EXIT=0
+- **ทดสอบ:** vitest **307/307 (18 ไฟล์)** · `npx tsc --noEmit` EXIT=0 · `npm run build` EXIT=0 (route เดิม `/docs/reg2569` 20.5 kB · `/docs/contract` 10.9 kB)
+- **ยังไม่ทำ:** pilot W1–W6, CI รันเทสต์ (U6), `boq-ui-engineer` (เลื่อนเป็น Phase 4), การปิด U1–U5 — การมีไฟล์ไม่ได้แปลว่า gate ผ่าน; ต้องมี evidence จากการรันจริงรอบแรก
+
