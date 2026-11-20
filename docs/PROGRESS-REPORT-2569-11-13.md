@@ -685,3 +685,12 @@ Golden ที่ตรึงในเทสต์ (คัดจากหน้�
 - **ทดสอบ:** vitest **307/307 (18 ไฟล์)** · `npx tsc --noEmit` EXIT=0 · `npm run build` EXIT=0 (route เดิม `/docs/reg2569` 20.5 kB · `/docs/contract` 10.9 kB)
 - **ยังไม่ทำ:** pilot W1–W6, CI รันเทสต์ (U6), `boq-ui-engineer` (เลื่อนเป็น Phase 4), การปิด U1–U5 — การมีไฟล์ไม่ได้แปลว่า gate ผ่าน; ต้องมี evidence จากการรันจริงรอบแรก
 
+### 16.8 CI baseline ปิด U6 (20 พ.ย. 2569)
+
+- เพิ่ม `.github/workflows/ci.yml` — `npm ci` → `npx vitest run` → `npx tsc --noEmit` → `npm run build` บน push/PR ไป `main` และ `workflow_dispatch`; ใช้ `actions/checkout@v5` + `actions/setup-node@v5` และ Node 20
+- เพิ่ม brief G0 (`docs/agent-ops/briefs/2026-11-20-ci-baseline.md`) และ release evidence (`docs/agent-ops/releases/2026-11-20-ci-baseline.md`) — งาน R1 ไม่แตะเงิน/เอกสารพิมพ์ จึงไม่ต้อง G2/G5
+- Actions เขียว 2 รอบ: `be86150` run 44723006875 (54s) และ `8478904` run 44723201815 (44s)
+- Local: vitest **307/307 (18 ไฟล์)** · `npx tsc --noEmit` EXIT=0 · `npm run build` EXIT=0
+- Vercel ของ `8478904` **success** · prod `/`, `/rulesets`, `/prices` = **HTTP 200** · tree สะอาด
+- **ยังเหลือ:** required status check/branch protection (ต้องใช้สิทธิ์ admin) และ Vercel ยังไม่รอ CI; pilot W1–W6 ยังไม่เริ่ม (U7)
+

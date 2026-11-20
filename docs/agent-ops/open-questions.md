@@ -12,7 +12,7 @@
 | U3 | `ROUNDDOWN(...,-3)` ในแบบฟอร์ม .xls | ยังไม่รองรับ | human owner | คำยืนยันเป็นลายลักษณ์อักษรจากหน่วยงาน | การปัดยอดสุทธิระดับพัน |
 | U4 | โครงการที่มีปร.3 กับแนบท้ายสัญญา | **บล็อก** โดย `computePriceReduction` | human owner + `boq-calc-engineer` | แนวทางที่หน่วยงานยืนยัน | ไม่สามารถออกแนบท้ายสัญญาได้จนกว่าจะปิด |
 | U5 | พิมพ์จริงกับโครงการตารางหลายหน้า | ยังไม่ทดสอบครบ | `boq-qa-release` + human | Chrome/Edge พิมพ์จริง A4 หลายหน้า | layout/จำนวนแผ่น/หัวกระดาษ |
-| U6 | CI รันเทสต์ | ยังไม่มี | `boq-qa-release` | GitHub Actions workflow | regression หลุดก่อน push |
+| U6 | CI รันเทสต์ | **ปิดแล้ว 20 พ.ย. 2569** — `ci` เขียว 2 รอบ; ยังไม่บังคับ required check | `boq-qa-release` | `.github/workflows/ci.yml` + Actions run 44723201815 | regression ถูกจับหลัง push ก่อน/ระหว่าง deploy; ยังไม่บล็อก merge |
 | U7 | Pilot ทีมเอเจนต์ W1–W6 | ยังไม่เริ่ม | `boq-lead` | ผลรันจริงรอบแรก + metrics §12 | ยังไม่มีหลักฐานว่า gate ทำงานครบ |
 
 ## กติกาการปิดรายการ
