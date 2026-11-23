@@ -701,5 +701,6 @@ Golden ที่ตรึงในเทสต์ (คัดจากหน้�
 - เพิ่ม CI step `Verify agent assets` ก่อน `npm ci` ใน `.github/workflows/ci.yml`
 - Positive: `PASS agents=6 skills=8 references=8` · Negative (เติม body ฝั่ง `.opencode` อย่างเดียว): `FAIL body mismatch` ตามคาด
 - vitest **307/307 (18 ไฟล์)** · `npx tsc --noEmit` EXIT=0 · `npm run build` EXIT=0
+- Release: commit `dd9f207` · CI run 45178717384 (1m0s) · Vercel **success** · prod `/`, `/rulesets`, `/prices` = **HTTP 200** · tree สะอาด (rebase 3 snapshot commits แล้วรันซ้ำ)
 - **ยังเหลือ:** grep hardcode ตัวเลขกฎหมาย, disclaimer presence, required status check, pilot W1–W6
 

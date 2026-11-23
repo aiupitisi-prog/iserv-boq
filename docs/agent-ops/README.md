@@ -3,7 +3,7 @@
 โฟลเดอร์นี้เก็บหลักฐานการทำงานของทีมเอเจนต์ตาม `docs/PRD-AGENT-TEAM.md`
 ใช้ร่วมกับ skill `boq-agent-operating-model`
 
-> **สถานะ ณ 20 พ.ย. 2569:** สร้างไฟล์ agent/skill ครบ + เพิ่ม CI baseline (U6) แล้ว แต่ยังไม่เริ่ม pilot W1–W6
+> **สถานะ ณ 23 พ.ย. 2569:** สร้างไฟล์ agent/skill ครบ + CI baseline (U6) + agent asset check แล้ว แต่ยังไม่เริ่ม pilot W1–W6
 > โฟลเดอร์ย่อยเริ่มมีงานจริงแล้ว (`briefs/`, `releases/`) — ห้ามใส่ข้อมูลโครงการจริง/PII/token
 
 ## โครงสร้าง
