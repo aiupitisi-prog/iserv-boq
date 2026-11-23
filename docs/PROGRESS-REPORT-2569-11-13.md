@@ -694,3 +694,12 @@ Golden ที่ตรึงในเทสต์ (คัดจากหน้�
 - Vercel ของ `8478904` **success** · prod `/`, `/rulesets`, `/prices` = **HTTP 200** · tree สะอาด
 - **ยังเหลือ:** required status check/branch protection (ต้องใช้สิทธิ์ admin) และ Vercel ยังไม่รอ CI; pilot W1–W6 ยังไม่เริ่ม (U7)
 
+### 16.9 Agent asset check + CI guard (20 พ.ย. 2569)
+
+- ย้ายการตรวจจากสคริปต์ชั่วคราว `temp/verify-agent-assets.mjs` → `scripts/verify-agent-assets.mjs` และเพิ่ม `npm run verify:agents`
+- ตรวจแบบ dynamic: agent ต้องมีคู่ทั้งสอง runtime/body ตรงกัน · frontmatter ครบ · skill ที่อ้างมีจริง · reviewer read-only · ไม่มี secret/TODO/FIXME/TBD
+- เพิ่ม CI step `Verify agent assets` ก่อน `npm ci` ใน `.github/workflows/ci.yml`
+- Positive: `PASS agents=6 skills=8 references=8` · Negative (เติม body ฝั่ง `.opencode` อย่างเดียว): `FAIL body mismatch` ตามคาด
+- vitest **307/307 (18 ไฟล์)** · `npx tsc --noEmit` EXIT=0 · `npm run build` EXIT=0
+- **ยังเหลือ:** grep hardcode ตัวเลขกฎหมาย, disclaimer presence, required status check, pilot W1–W6
+

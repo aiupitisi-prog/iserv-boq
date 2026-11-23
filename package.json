@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify:agents": "node scripts/verify-agent-assets.mjs"
   },
   "dependencies": {
     "next": "15.5.29",

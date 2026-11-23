@@ -565,8 +565,8 @@ Publish → ใช้ในงานถัดไป → ทบทวนเมื
 - ต้นทางเดียว: `.claude/skills/<id>/SKILL.md`
 - Agent definitions มี 2 ตำแหน่ง: `.opencode/agents/*.md` และ `.claude/agents/*.md`
 - เนื้อหาต้องเหมือนกัน ต่างเฉพาะ frontmatter ของ runtime
-- เพิ่มสคริปต์ตรวจ (อนาคต): เทียบ hash ของเนื้อหา agent ทั้งสองตำแหน่ง + ตรวจว่าทุก agent อ้าง skill ที่มีจริง
-- CI ควรตรวจ: skill id ที่อ้างมีไฟล์, ไม่มี secret, ไม่มี `TODO` ค้างในสกิลที่ใช้ production
+- สคริปต์ตรวจ: `scripts/verify-agent-assets.mjs` (`npm run verify:agents`) — เทียบ body agent สอง runtime, ตรวจ frontmatter, skill reference, reviewer read-only, secret/TODO
+- CI ตรวจ (`.github/workflows/ci.yml`): skill id ที่อ้างมีไฟล์, ไม่มี secret/TODO, body agent ตรงกัน
 
 ---
 
@@ -895,7 +895,7 @@ Next owner:
 
 - เขียน `boq-ruleset-pipeline`
 - อัปเดต `tpso-price-integration` v1.1 + `iserv-boq-dev-workflow` v2
-- เพิ่ม GitHub Actions รันเทสต์ (ถ้าอนุมัติ)
+- เพิ่ม GitHub Actions รันเทสต์ + agent asset check แล้ว (20 พ.ย. 2569)
 - **Pilot:** งาน R4 1 รอบ (ตรวจ/import ประกาศ)
 
 **Acceptance:** human sign-off, provenance ครบ, import tests ผ่าน
@@ -904,19 +904,20 @@ Next owner:
 
 - วัด M1–M10
 - พิจารณา `boq-ui-engineer`
-- เพิ่ม automated checks: grep hardcode, skill sync, disclaimer presence
+- เพิ่ม automated checks: skill sync แล้ว (20 พ.ย. 2569); เหลือ grep hardcode และ disclaimer presence
 - ทบทวน/ลดสกิลที่ซ้ำซ้อน
 
 **Acceptance:** metrics ถึงเป้าหมาย หรือมีแผนแก้ที่ชัด
 
-### 12.1 สถานะการสร้างไฟล์ (19 พ.ย. 2569)
+### 12.1 สถานะการสร้างไฟล์ (20 พ.ย. 2569)
 
 | หมวด | สถานะ |
 |---|---|
 | Agent A1–A6 | สร้าง/อัปเดตครบทั้ง `.opencode/agents/` และ `.claude/agents/` — เนื้อหา body ตรงกัน ต่างเฉพาะ frontmatter |
 | Skills S1–S8 | มีไฟล์ครบที่ `.claude/skills/<id>/SKILL.md` และ runtime โหลดได้ |
-| Operating docs | `docs/agent-ops/README.md` + `open-questions.md` |
-| ยังไม่ทำ | pilot W1–W6, CI รันเทสต์, `boq-ui-engineer`, human sign-off U1–U5 |
+| Operating docs | `docs/agent-ops/README.md` + `open-questions.md` + `scripts/verify-agent-assets.mjs` |
+| CI | `.github/workflows/ci.yml` — vitest/tsc/build + `verify:agents` (เพิ่ม 20 พ.ย. 2569) |
+| ยังไม่ทำ | pilot W1–W6, required status check, `boq-ui-engineer`, human sign-off U1–U5 |
 
 > การมีไฟล์ไม่ได้แปลว่า gate ผ่าน — pilot แต่ละรอบต้องสร้าง evidence ตาม §8 และให้ reviewer ตรวจก่อนปิดงาน
 
@@ -947,7 +948,7 @@ Next owner:
 | Q2 | Reviewer ต้องเป็น session ใหม่ทุกครั้งหรือไม่? | Lead/Human | ใช่ สำหรับ R2–R4 |
 | Q3 | ใครเป็น human approver สำหรับ R4? | Human | เจ้าของโปรเจกต์ |
 | Q4 | commit `docs/agent-ops/` หรือเก็บ local? | Human | commit สรุป (ไม่มี secret) |
-| Q5 | เพิ่ม CI รันเทสต์หรือยัง? | Human | เพิ่มใน Phase 3 |
+| Q5 | เพิ่ม CI รันเทสต์หรือยัง? | — | **ปิดแล้ว 20 พ.ย. 2569:** `.github/workflows/ci.yml` (vitest/tsc/build + agent asset check) |
 | Q6 | กำหนด model ต่อ agent? | Human | ใช้ค่าเริ่มต้นก่อน แล้ววัด |
 | Q7 | เปิด `boq-ui-engineer` เมื่อไร? | Lead | Phase 4 หรือเมื่อมีงาน UI >2 รอบ |
 | Q8 | แนวทาง ปร.3 ในแนบท้ายสัญญา? | Human | คงบล็อกจนมีแนวทางยืนยัน |
