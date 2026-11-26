@@ -13,7 +13,18 @@
 | U4 | โครงการที่มีปร.3 กับแนบท้ายสัญญา | **บล็อก** โดย `computePriceReduction` — ทุกแถวใน `specialExpenses` รวมยอด 0 (FND-001, 23 พ.ย. 2569) | human owner + `boq-calc-engineer` | แนวทางที่หน่วยงานยืนยัน | ไม่สามารถออกแนบท้ายสัญญาได้จนกว่าจะปิด |
 | U5 | พิมพ์จริงกับโครงการตารางหลายหน้า | ยังไม่ทดสอบครบ | `boq-qa-release` + human | Chrome/Edge พิมพ์จริง A4 หลายหน้า | layout/จำนวนแผ่น/หัวกระดาษ |
 | U6 | CI รันเทสต์ | **ปิดแล้ว 20 พ.ย. 2569** — `ci` เขียว 2 รอบ; ยังไม่บังคับ required check | `boq-qa-release` | `.github/workflows/ci.yml` + Actions run 44723201815 | regression ถูกจับหลัง push ก่อน/ระหว่าง deploy; ยังไม่บล็อก merge |
-| U7 | Pilot ทีมเอเจนต์ W1–W6 | **กำลังดำเนินการ** — pilot W2 baseline audit FAIL (23 พ.ย. 2569); กำลังแก้ FND-001..FND-007 ก่อน re-review | `boq-lead` | ผลรันจริงรอบแรก + metrics §12 | ยังไม่มีหลักฐานว่า gate ทำงานครบ (G2 ยังไม่ผ่าน) |
+| U7 | Pilot ทีมเอเจนต์ W1–W6 | **pilot W2 ผ่าน G2 เฉพาะ FND-001..FND-007** — release `b5549a0` (CI `45845567076`, Vercel success, prod 200); W1/W3–W6 ยังไม่มีผลรัน | `boq-lead` | ผลรันจริงรอบแรก + metrics §12 | ยังไม่มีหลักฐานว่า gate ทำงานครบทุก workflow |
+
+## Follow-up จาก re-review 26 พ.ย. 2569 (note — ไม่บล็อก G2)
+
+| ID | เรื่อง | Owner | ไฟล์ |
+|---|---|---|---|
+| N-01 | `thDate(new Date())` ใน render ของ reg2569 — เสี่ยง hydration mismatch | `boq-docs-engineer` | `app/projects/[id]/docs/reg2569/reg2569-client.tsx` |
+| N-02 | พิมพ์ป้าย “ไม่ทราบปี (unverified)” เมื่อ `rulesetBeYear()` เป็น null | `boq-docs-engineer` | `reg2569-client.tsx` |
+| N-03 | พิมพ์ `sourceDoc` + จุดตรวจ checksum เต็ม | `boq-docs-engineer` | `reg2569-client.tsx` |
+| N-04 | เพิ่ม bahtText literal ใน contract test (กัน tautology) | `boq-docs-engineer` | `lib/export-contract.test.ts` |
+| N-05 | helper W481 เติม mirror notice แม้ provenance เป็น official | `price-data-steward` | `lib/ruleset-w481-meta.ts` |
+| N-06 | ข้อความบล็อก ปร.3 แนะนำให้ลบแถวว่าง/ยอด 0 | `boq-calc-engineer` | `lib/calc/reduce.ts` |
 
 ## กติกาการปิดรายการ
 
