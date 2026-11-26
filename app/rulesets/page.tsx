@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { TransportSchedule, WorkTypeCode } from "@/lib/ruleset";
 import { loadRulesets, Ruleset, saveRulesets, WORK_TYPE_LABELS } from "@/lib/ruleset";
 import { prepareImport } from "@/lib/ruleset-import";
+import { withW481Provenance } from "@/lib/ruleset-w481-meta";
 import { countWageRates } from "@/lib/calc/wage";
 import MachineryCalculator from "./machinery-calculator";
 import TransportCalculator from "./transport-calculator";
@@ -116,7 +117,7 @@ export default function RulesetsPage() {
   async function installW481() {
     try {
       const w = await import("@/lib/ruleset-w481-2569");
-      const draft = w.getW481Ruleset();
+      const draft = withW481Provenance(w.getW481Ruleset());
       const tableCount = draft.factorFTables?.length ?? 0;
       const ok = window.confirm(
         "ติดตั้งชุดตาราง Factor F ตามประกาศ ว 481 ลงเครื่องนี้?\n" +
@@ -135,7 +136,6 @@ export default function RulesetsPage() {
         setChecksum, // checksum เฉพาะชุดตาราง — กันการตัด factorFTables ออกจากไฟล์ภายหลัง
         notices: [
           ...base.notices ?? [],
-          "⚠ ตัวเลขถอดจาก PDF mirror (Yotathai) — ยังไม่ยืนยันกับราชกิจจานุเบกษา/เล่มจริง ห้ามใช้คำนวณเอกสารที่ส่งหน่วยงานจริงก่อนยืนยัน",
           `SET checksum ของชุด ${tableCount} ตาราง (ตรวจผ่านตอนติดตั้ง): ${setChecksum}`,
         ],
       };

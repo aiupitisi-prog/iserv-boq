@@ -213,6 +213,36 @@ describe("computePriceReduction (แนบท้ายสัญญา — ปร
     expect(r.lines).toHaveLength(0); // ไม่สร้างตัวเลขที่อาจผิด
   });
 
+  it("โครงการมีแถว ปร.3 ยอด 0 — ต้องบล็อกเช่นกัน (builder ยังสร้างแผ่น ปร.3 เมื่อมีแถว)", () => {
+    // FND-001: lib/report2569.ts สร้างแผ่น ปร.3 เมื่อ expenses.length > 0 (ไม่ดูยอด) และฟอร์มรับ amount 0
+    // → guard ต้องบล็อกตามจำนวนแถว ไม่กรองด้วย amount
+    const p = mkProject([{ name: "งานรวม", qty: 1, price: 1000 }]);
+    p.specialExpenses = [
+      { id: "se0", name: "ค่าใช้จ่ายพิเศษที่ยังไม่มียอด", qty: 1, unit: "งาน", amount: 0, vatIncluded: false },
+    ];
+    const calc = computeGovBOQ(p, null);
+    const r = computePriceReduction(p, calc, 900);
+
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("ปร.3");
+    expect(r.error).toContain("1 รายการ");
+    expect(r.lines).toHaveLength(0); // ไม่สร้างตัวเลขที่อาจผิด
+  });
+
+  it("ข้อความบล็อก ปร.3 นับจำนวนจาก array ทั้งหมด (ไม่กรองยอด 0 ออก)", () => {
+    const p = mkProject([{ name: "งานรวม", qty: 1, price: 1000 }]);
+    p.specialExpenses = [
+      { id: "se0", name: "แถวยอด 0", qty: 1, unit: "งาน", amount: 0, vatIncluded: false },
+      { id: "se1", name: "แถวมียอด", qty: 1, unit: "งาน", amount: 100, vatIncluded: false },
+    ];
+    const calc = computeGovBOQ(p, null);
+    const r = computePriceReduction(p, calc, 900);
+
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("2 รายการ");
+    expect(r.lines).toHaveLength(0);
+  });
+
   it("กรณีไม่ถูกต้อง — ราคาเสนอสูงกว่าราคากลาง / ไม่ได้กรอก / BOQ ว่าง / ส่วนคงเดิมกินวงเงิน", () => {
     const p = mkProject([{ name: "งานรวม", qty: 1, price: 1000 }]); // ฐาน 1,000
     const calc = computeGovBOQ(p, null);

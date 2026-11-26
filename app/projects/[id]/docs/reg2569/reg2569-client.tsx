@@ -29,6 +29,28 @@ const fmtBaht = (n: number): string =>
 const fmtQty = (n: number): string => (isFinite(n) ? n.toLocaleString("th-TH", { maximumFractionDigits: 4 }) : "—");
 const thb = (s: number): number => satangToBaht(s);
 
+// ที่มาของชุดกฎ (provenance) — ข้อความเดียวใช้ทั้งท้ายกระดาษและบล็อกบนแผ่นแรก
+// ไม่มีชุดกฎ/ไม่มี metadata = unverified (ห้ามเดาว่าเป็น official)
+function rulesetProvenanceLabel(rs: Ruleset | null): string {
+  if (!rs) return "ไม่ทราบชุดกฎ (unverified)";
+  const p = rs.provenance;
+  if (!p) return "ไม่ระบุ (unverified)";
+  if (p.sourceKind === "official") {
+    return p.verifiedAgainstGazette
+      ? "official (ยืนยันกับราชกิจจานุเบกษาแล้ว)"
+      : "official (ยังไม่ระบุการยืนยันกับราชกิจจานุเบกษา)";
+  }
+  return p.verifiedAgainstGazette
+    ? "mirror-unverified (สำเนา — ระบุว่ายืนยันแล้ว แต่ยังต้องตรวจต้นฉบับ)"
+    : "mirror-unverified (สำเนา — ยังไม่ยืนยันกับราชกิจจานุเบกษา)";
+}
+
+// checksum ตัดสั้นสำหรับหัว/ท้ายกระดาษ — ค่าเต็มยังตรวจได้จากชีต 00/หน้า import
+function shortChecksum(checksum?: string): string {
+  if (!checksum) return "—";
+  return checksum.length > 12 ? `${checksum.slice(0, 12)}…` : checksum;
+}
+
 const td = "border border-slate-300 px-2 py-1 align-top";
 const tdr = "border border-slate-300 px-2 py-1 text-right align-top";
 const inputCls = "mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm";
@@ -120,6 +142,31 @@ function PrintWarnings({ warnings }: { warnings: string[] }) {
       <ul className="ml-4 list-disc">
         {warnings.map((w, i) => <li key={i}>{w}</li>)}
       </ul>
+    </div>
+  );
+}
+
+// — บล็อกชุดกฎ/ที่มาบนแผ่นแรก (พิมพ์จริง 10px) — ตรวจย้อนกลับได้ว่าเอกสารใช้ชุดกฎใด —
+function RulesetProvenanceBlock({ ruleset }: { ruleset: Ruleset | null }) {
+  return (
+    <div className="mt-2 rounded border border-slate-300 px-2 py-1 text-[10px] leading-4 text-slate-700">
+      <p>
+        <b>ชุดกฎที่ใช้คำนวณ:</b>{" "}
+        {ruleset ? `${ruleset.name} (id ${ruleset.id})` : "ไม่ทราบชุดกฎ (unverified)"}
+      </p>
+      <p>
+        <b>มีผลตั้งแต่:</b> {ruleset?.effectiveFrom || "ไม่ระบุ (unverified)"} ·{" "}
+        <b>checksum:</b> {shortChecksum(ruleset?.checksum)} ·{" "}
+        <b>ที่มา:</b> {rulesetProvenanceLabel(ruleset)}
+      </p>
+      {ruleset && ruleset.notices && ruleset.notices.length > 0 ? (
+        <>
+          <p className="mt-0.5"><b>หมายเหตุ/เงื่อนไขจากชุดกฎ:</b></p>
+          <ul className="ml-4 list-disc">
+            {ruleset.notices.map((n, i) => <li key={i}>{n}</li>)}
+          </ul>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -245,7 +292,7 @@ export default function Reg2569Client({ projectId }: { projectId: string }) {
     }
   };
 
-  const SHEETS = buildSheets({ project, committee, rep, area, avgPerSqm, p1Pages, totalPages });
+  const SHEETS = buildSheets({ project, committee, rep, area, avgPerSqm, p1Pages, totalPages, pinnedRs, superseded });
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
@@ -306,6 +353,10 @@ export default function Reg2569Client({ projectId }: { projectId: string }) {
       <div className="print-header">{project.name} · รายงานราคากลาง 9 ชิ้น{regYear ? ` (ระเบียบ พ.ศ. ${regYear})` : ""}</div>
       <div className="print-footer">
         จัดทำด้วยระบบ iserv BOQ — ไม่ใช่ราคามาตรฐานของกรมบัญชีกลาง · พิมพ์ {today}
+        <br />
+        ชุดกฎ: {pinnedRs ? pinnedRs.name : "ไม่ทราบชุดกฎ (unverified)"} · มีผลตั้งแต่{" "}
+        {pinnedRs?.effectiveFrom || "ไม่ระบุ (unverified)"} · checksum {shortChecksum(pinnedRs?.checksum)} · ที่มา:{" "}
+        {rulesetProvenanceLabel(pinnedRs)}
       </div>
     </div>
   );
@@ -320,6 +371,8 @@ function buildSheets({
   avgPerSqm,
   p1Pages,
   totalPages,
+  pinnedRs,
+  superseded,
 }: {
   project: BoqProject;
   committee?: Committee;
@@ -328,6 +381,8 @@ function buildSheets({
   avgPerSqm: number | null;
   p1Pages: number;
   totalPages: number;
+  pinnedRs: Ruleset | null;
+  superseded: boolean;
 }): { id: string; title: string; body: React.ReactNode }[] {
   const sheets: { id: string; title: string; body: React.ReactNode }[] = [];
 
@@ -346,6 +401,14 @@ function buildSheets({
           committee={committee}
           extra={<p><b>แบบ ปร.1 ที่แนบ</b> จำนวน {p1Pages} แผ่น</p>}
         />
+        <RulesetProvenanceBlock ruleset={pinnedRs} />
+        {superseded && (
+          <p className="print-warn mt-2 rounded border border-red-400 px-2 py-1 text-[10px] leading-4">
+            <b>⚠ ชุดกฎนี้ถูกแทนที่แล้ว</b>
+            {pinnedRs?.supersededBy ? ` (supersededBy ${pinnedRs.supersededBy})` : ""} — ตัวเลขอัตราอาจไม่ตรงประกาศฉบับล่าสุด;
+            ตรวจก่อนใช้ยื่นหน่วยงาน (โปรเจกต์ pin ชุดกฎ id {project.rulesetId ?? "—"})
+          </p>
+        )}
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-slate-100 text-left">

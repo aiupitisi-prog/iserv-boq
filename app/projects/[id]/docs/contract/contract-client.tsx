@@ -149,6 +149,8 @@ export default function ContractClient({ projectId }: { projectId: string }) {
   const [rulesets, setRulesets] = useState<Ruleset[]>([]);
   const [exporting, setExporting] = useState(false);
   const [exportErr, setExportErr] = useState<string | null>(null);
+  // วันที่พิมพ์กำหนดครั้งเดียวตอน mount — กัน hydration mismatch จาก new Date() ใน render (FND-007)
+  const [printedAt] = useState(() => new Date());
 
   useEffect(() => {
     (async () => {
@@ -233,7 +235,7 @@ export default function ContractClient({ projectId }: { projectId: string }) {
         {project.name} · แนบท้ายสัญญา · เอกสารของเจ้าหน้าที่พัสดุ (ไม่ใช่ราคากลาง)
       </div>
       <div className="print-footer">
-        เอกสารแนบท้ายสัญญาของเจ้าหน้าที่พัสดุ — ไม่ใช่ราคากลางและไม่ใช่ราคามาตรฐานของกรมบัญชีกลาง · พิมพ์จากระบบ iserv BOQ — วันที่พิมพ์ {new Date().toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" })}
+        เอกสารแนบท้ายสัญญาของเจ้าหน้าที่พัสดุ — ไม่ใช่ราคากลางและไม่ใช่ราคามาตรฐานของกรมบัญชีกลาง · พิมพ์จากระบบ iserv BOQ — วันที่พิมพ์ {printedAt.toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" })}
       </div>
 
       <div className="no-print mb-6 flex flex-wrap items-center gap-2">

@@ -165,7 +165,9 @@ export function computePriceReduction(
   }
   // ค่าใช้จ่ายพิเศษ (ปร.3) เป็นรายการนอก BOQ ที่ยังไม่มีแนวทางปรับลด/คงเดิมที่ยืนยันได้ —
   // ห้ามเดา: บล็อกเอกสารจนกว่าจะกำหนดแนวทาง (ผลรวมสัญญาจะผิดถ้ากระจายส่วนนี้ลงรายการ BOQ)
-  const specialExpenses = (project.specialExpenses ?? []).filter((e) => e.amount !== 0);
+  // นับทุกแถวใน array ไม่กรองด้วย amount: builder สร้างแผ่น ปร.3 เมื่อ expenses.length > 0 (แม้ยอด 0)
+  // และฟอร์มรับ amount 0 → ถ้ากรองยอด 0 จะปล่อยโครงการที่มี ปร.3 ออกสัญญาได้ (FND-001)
+  const specialExpenses = project.specialExpenses ?? [];
   if (specialExpenses.length > 0) {
     return err(
       `โครงการมีค่าใช้จ่ายพิเศษตามข้อกำหนด (ปร.3) ${specialExpenses.length} รายการ — ยังไม่รองรับการนำเข้าแนบท้ายสัญญา/การปรับลด; ต้องกำหนดแนวทางคงเดิมหรือปรับลดที่ยืนยันได้ก่อนจัดทำเอกสาร`,

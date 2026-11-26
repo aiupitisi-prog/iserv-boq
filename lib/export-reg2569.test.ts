@@ -12,7 +12,6 @@ import {
   REG2569_DISCLAIMER,
   REG2569_SHEETS,
   reg2569Filename,
-  reg2569SheetNames,
   sheetNameSafe,
   toReg2569WorkbookArray,
 } from "./export-reg2569";
@@ -67,7 +66,7 @@ function project(over: Partial<BoqProject>): BoqProject {
   };
 }
 
-// โปรเจกต์ทอง: 2 หมวดงาน + ครุภัณฑ์มีค่าติดตั้ง + ค่าใช้จ่ายพิเศษ 2 รายการ + เนื้อที่อาคาร
+// โปรเจกต์ทอง: 3 หมวดงาน (รวมงานระบบไฟฟ้าที่มีทั้งงานก่อสร้างและครุภัณฑ์) + ครุภัณฑ์มีค่าติดตั้ง + ค่าใช้จ่ายพิเศษ 2 รายการ + เนื้อที่อาคาร
 function goldenProject(): BoqProject {
   return project({
     committee: {
@@ -102,6 +101,7 @@ function goldenProject(): BoqProject {
       }),
       item({ section: "งานโครงสร้าง", name: "งานคอนกรีต", unit: "ลบ.ม.", qty: 2, price: 500, matPrice: 400, laborPrice: 100 }),
       item({ section: "งานโครงสร้าง", name: "งานเหล็กเส้น", unit: "ตัน", qty: 3.5, price: 99.99 }), // ไม่แยก ก./ข.
+      item({ section: "งานระบบไฟฟ้า", name: "งานเดินสายไฟฟ้า", unit: "เมตร", qty: 40, price: 85, matPrice: 60, laborPrice: 25 }),
       item({
         section: "งานระบบไฟฟ้า",
         name: "ตู้พาเนลหลัก",
@@ -140,6 +140,34 @@ function allText(wb: XL.WorkBook, name: string): string {
 const GOLD = goldenProject();
 const GOLD_REP = reportOf(GOLD);
 
+// FND-004 — golden แบบ hardcode: ห้ามคำนวณลำดับ/จำนวนด้วยสูตรเดียวกับ implementation
+// GOLD = 3 หมวดงานก่อสร้าง + ปร.2 (2 ชีต) + ปร.3 (2 เหตุผล) → 12 ชีต, จำนวนแผ่นพิมพ์ 13
+const GOLD_SHEET_ORDER = [
+  "00 คำเตือนและที่มา",
+  "1.ปร.1(ก)",
+  "2.ปร.1",
+  "3.ปร.2(ก)",
+  "4.ปร.2",
+  "5.ปร.3",
+  "6.เหตุผลค่าใช้จ่ายพิเศษ",
+  "7.ปร.4",
+  "8.รายละเอียด Factor F",
+  "9.สืบราคาวัสดุ",
+  "BOQ แสดงรายการ",
+  "สรุปหมวดงาน",
+];
+// fixture 2 = 1 หมวดงาน, ไม่มีครุภัณฑ์/ค่าใช้จ่ายพิเศษ → 8 ชีต, จำนวนแผ่นพิมพ์ 6
+const SIMPLE_SHEET_ORDER = [
+  "00 คำเตือนและที่มา",
+  "1.ปร.1(ก)",
+  "2.ปร.1",
+  "7.ปร.4",
+  "8.รายละเอียด Factor F",
+  "9.สืบราคาวัสดุ",
+  "BOQ แสดงรายการ",
+  "สรุปหมวดงาน",
+];
+
 describe("export-reg2569 — ชุดเอกสารเผยแพร่ (xlsx หลายชีต)", () => {
   let buf: Uint8Array;
   let wb: XL.WorkBook;
@@ -150,9 +178,9 @@ describe("export-reg2569 — ชุดเอกสารเผยแพร่ (x
   });
 
   it("มีชีตครบตามชุด 9 ชิ้น + BOQ/สรุปหมวดงาน และชื่อชีตถูกกฎ Excel", () => {
-    expect(wb.SheetNames).toEqual(reg2569SheetNames(GOLD_REP));
-    expect(wb.SheetNames[0]).toBe(REG2569_SHEETS.cover);
-    expect(wb.SheetNames).toHaveLength(12); // มีครุภัณฑ์ + ค่าใช้จ่ายพิเศษ
+    // FND-004 — ลำดับ/จำนวนชีตเป็นค่าคงที่ (ไม่ map จาก reg2569SheetNames ที่ใช้สูตรเดียวกับ implementation)
+    expect(wb.SheetNames).toEqual(GOLD_SHEET_ORDER);
+    expect(wb.SheetNames).toHaveLength(12); // มี ปร.2 + ปร.3
     for (const n of wb.SheetNames) {
       expect(n.length).toBeLessThanOrEqual(31);
       expect(n).not.toMatch(/[\\/:*?[\]]/);
@@ -230,13 +258,17 @@ describe("export-reg2569 — ชุดเอกสารเผยแพร่ (x
 
   it("ปร.4 มีจำนวนเงินเป็นตัวอักษร (bahtText) และส่วนสรุป 3 ส่วน", () => {
     const p4 = allText(wb, REG2569_SHEETS.p4);
-    expect(p4).toContain(bahtText(GOLD_REP.summary.totalSat));
+    // FND-005 — golden ตัวอักษรบาทเป็นข้อความ literal (ไม่สร้าง expected ด้วย bahtText())
+    expect(GOLD_REP.summary.totalSat).toBe(4_235_857);
+    const totalText = "สี่หมื่นสองพันสามร้อยห้าสิบแปดบาทห้าสิบเจ็ดสตางค์";
+    expect(bahtText(GOLD_REP.summary.totalSat)).toBe(totalText);
+    expect(p4).toContain(totalText);
     expect(p4).toContain("ส่วนที่ 1 ค่าก่อสร้าง");
     expect(p4).toContain("ส่วนที่ 2 ค่าครุภัณฑ์จัดซื้อ");
     expect(p4).toContain("ส่วนที่ 3 ค่าใช้จ่ายพิเศษตามข้อกำหนดและค่าใช้จ่ายอื่นที่จำเป็นต้องมี");
-    // จำนวนแผ่นรวมตามสูตรเดียวกับหน้าพิมพ์ (ไม่ hardcode จำนวนชีต)
-    const totalPages = 5 + GOLD_REP.p1Sheets.length + (GOLD_REP.p2 ? 2 : 0) + (GOLD_REP.p3 ? 1 + GOLD_REP.p3.reasons.length : 0);
-    expect(p4).toContain(`จำนวน ${totalPages} แผ่น`);
+    // FND-004 — hardcode: GOLD มี 3 หมวดงานก่อสร้าง + ปร.2 (2 แผ่น) + ปร.3 (1 + 2 เหตุผล) = 13 แผ่น
+    expect(GOLD_REP.p1Sheets).toHaveLength(3);
+    expect(p4).toContain("จำนวน 13 แผ่น");
   });
 
   it("ชีต ปร.1 มีสรุปหมวดงาน (ค่าวัสดุ/ค่าแรง/รวม) ก่อนรายละเอียด และมีค่าวัสดุ/ค่าแรง/หมายเหตุ", () => {
@@ -367,17 +399,19 @@ describe("export-reg2569 — ชุดเอกสารเผยแพร่ (x
   });
 
   it("โปรเจกต์ไม่มีครุภัณฑ์/ค่าใช้จ่ายพิเศษ → ไม่มีชีต ปร.2/ปร.3 (ตรงกับหน้าพิมพ์)", async () => {
+    // FND-004 fixture 2: 1 หมวดงาน, ไม่มีครุภัณฑ์/ค่าใช้จ่ายพิเศษ → 8 ชีต (hardcode) และ 6 แผ่น
     const p = project({
       items: [item({ name: "งานเดียว", qty: 1, price: 1000, matPrice: 700, laborPrice: 300 })],
     });
     const rep = reportOf(p);
     const b = await toReg2569WorkbookArray(p, TEST_RULESET, rep, { now: NOW });
     const w = XL.read(b, { type: "array" });
-    expect(w.SheetNames).not.toContain(REG2569_SHEETS.p2g);
-    expect(w.SheetNames).not.toContain(REG2569_SHEETS.p2);
-    expect(w.SheetNames).not.toContain(REG2569_SHEETS.p3);
-    expect(w.SheetNames).not.toContain(REG2569_SHEETS.p3reason);
-    expect(w.SheetNames).toHaveLength(8);
+    expect(w.SheetNames).toEqual(SIMPLE_SHEET_ORDER);
+    expect(rep.p1Sheets).toHaveLength(1);
+    expect(allText(w, REG2569_SHEETS.p4)).toContain("จำนวน 6 แผ่น");
+    // FND-005 — ตัวอักษรบาท literal จากยอดจริง 125,000 สตางค์ (1,250.00 บาท) — ห้ามใช้ bahtText() สร้าง expected
+    expect(rep.summary.totalSat).toBe(125_000);
+    expect(allText(w, REG2569_SHEETS.p4)).toContain("หนึ่งพันสองร้อยห้าสิบบาทถ้วน");
     for (const n of w.SheetNames) expect(allText(w, n)).toContain(REG2569_DISCLAIMER);
   });
 
